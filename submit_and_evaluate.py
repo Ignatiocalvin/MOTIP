@@ -223,16 +223,21 @@ def submit_and_evaluate_one_model(
         if dataset in ["DanceTrack", "SportsMOT", "MOT17", "PersonPath22_Inference", "BFT"]:
             sequence_tracker_results = []
             for t in range(len(sequence_results)):
-                for obj_id, score, category, bbox in zip(
+                for obj_id, score, category, bbox, concepts in zip(
                         sequence_results[t]["id"],
                         sequence_results[t]["score"],
                         sequence_results[t]["category"],
-                        sequence_results[t]["bbox"],    # [x, y, w, h]
+                        sequence_results[t]["bbox"],  # [x, y, w, h]
+                        sequence_results[t]["concepts"],
                 ):
+                    concept_probs = concepts.sigmoid().cpu().numpy()
+                    # Create a comma-separated string of concept probabilities
+                    concept_str = ",".join([f"{c:.4f}" for c in concept_probs])
                     sequence_tracker_results.append(
                         f"{t + 1},{obj_id.item()},"
-                        f"{bbox[0].item()},{bbox[1].item()},{bbox[2].item()},{bbox[3].item()},"
-                        f"1,-1,-1,-1\n"
+                        f"{bbox.item():.2f},{bbox.item():.2f},{bbox.item():.2f},{bbox.item():.2f},"
+                        f"{score.item():.4f},-1,-1,-1," # Use real score and correct bbox format
+                        f"{concept_str}\n"
                     )
             if not is_fake:
                 os.makedirs(os.path.join(outputs_dir, "tracker"), exist_ok=True)

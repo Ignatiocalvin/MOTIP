@@ -32,7 +32,27 @@ class DanceTrack(OneDataset):
         return
 
     def _get_sequence_names(self):
-        return os.listdir(os.path.join(self.data_dir, self.split))
+        # Handle the nested structure of DanceTrack dataset
+        split_dir = os.path.join(self.data_dir, self.split)
+        sequence_names = []
+        
+        # Check if there are subdirectories like train1, train2
+        for item in os.listdir(split_dir):
+            item_path = os.path.join(split_dir, item)
+            if os.path.isdir(item_path):
+                # If it's a directory, check if it contains sequence folders
+                sub_items = os.listdir(item_path)
+                # Check if this contains actual sequences (directories with seqinfo.ini)
+                for sub_item in sub_items:
+                    sub_item_path = os.path.join(item_path, sub_item)
+                    if os.path.isdir(sub_item_path) and os.path.exists(os.path.join(sub_item_path, "seqinfo.ini")):
+                        sequence_names.append(os.path.join(item, sub_item))
+                    elif os.path.exists(os.path.join(item_path, "seqinfo.ini")):
+                        # Direct sequence directory
+                        sequence_names.append(item)
+                        break
+        
+        return sequence_names
 
     def _get_sequence_infos(self):
         sequence_names = self._get_sequence_names()

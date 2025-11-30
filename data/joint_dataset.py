@@ -3,6 +3,7 @@
 # you should always use JointDataset to combine and organize them (even if you only used one dataset).
 
 import copy
+import os # <-- Import OS
 import torch
 from collections import defaultdict
 from torch.utils.data import Dataset
@@ -12,6 +13,7 @@ from .dancetrack import DanceTrack
 from .sportsmot import SportsMOT
 from .crowdhuman import CrowdHuman
 from .bft import BFT
+from .pdestre import PDESTRE
 
 
 dataset_classes = {
@@ -19,6 +21,7 @@ dataset_classes = {
     "SportsMOT": SportsMOT,
     "CrowdHuman": CrowdHuman,
     "BFT": BFT,
+    "P-DESTRE": PDESTRE, # <-- This MUST match the string in your config
 }
 
 
@@ -52,6 +55,9 @@ class JointDataset(Dataset):
         self.annotations = defaultdict(lambda: defaultdict(dict))
         for dataset, split in zip(datasets, splits):
             try:
+                if dataset not in dataset_classes:
+                    raise KeyError(f"Dataset '{dataset}' not found in dataset_classes.")
+                
                 dataset_class = dataset_classes[dataset](
                     data_root=data_root,
                     split=split,
@@ -60,6 +66,40 @@ class JointDataset(Dataset):
                 self.sequence_infos[dataset][split] = dataset_class.get_sequence_infos()
                 self.image_paths[dataset][split] = dataset_class.get_image_paths()
                 self.annotations[dataset][split] = dataset_class.get_annotations()
+
+                # --- BEGIN HOTFIX for P-DESTRE Pathing Issue ---
+                # This block will run *after* the (broken) paths are loaded
+                # and will manually overwrite them with the correct path structure.
+                if dataset == "P-DESTRE":
+                    print(f"[HOTFIX] Applying path correction for P-DESTRE split: {split}")
+                    
+                    # This will hold the new, correct paths
+                    corrected_paths_dict = defaultdict(lambda: defaultdict(dict))
+                    
+                    # This is the base path, e.g., "./data/P-DESTRE"
+                    pdestre_base_path = os.path.join(data_root, dataset_class.sub_dir)
+                    
+                    # Iterate over the sequences we've already loaded
+                    for seq_name, seq_info in self.sequence_infos[dataset][split].items():
+                        im_dir = seq_info.get("imDir", "img1")
+                        im_ext = seq_info.get("imExt", ".jpg")
+                        
+                        for frame_idx in range(seq_info["length"]):
+                            # P-DESTRE uses 6-digit padding and is 1-based
+                            image_name = f"{frame_idx + 1:06d}{im_ext}"
+                            
+                            # Build the correct path:
+                            # e.g., ./data/P-DESTRE/images/11-11-2019-1-6/img1/000001.jpg
+                            correct_path = os.path.join(
+                                pdestre_base_path, "images", seq_name, im_dir, image_name
+                            )
+                            corrected_paths_dict[seq_name][frame_idx] = correct_path
+                    
+                    # Overwrite the broken paths in self.image_paths
+                    self.image_paths[dataset][split] = corrected_paths_dict
+                    print(f"[HOTFIX] Path correction applied.")
+                # --- END HOTFIX ---
+
             except KeyError:
                 raise AttributeError(f"Dataset {dataset} is not supported.")
         # Decouple the 'is_legal' attribute from the annotations,
@@ -77,8 +117,33 @@ class JointDataset(Dataset):
         for dataset in self.annotations:
             for split in self.annotations[dataset]:
                 for sequence_name in self.annotations[dataset][split]:
-                    for frame_id, annotation in enumerate(self.annotations[dataset][split][sequence_name]):
-                        decoupled_is_legal[dataset][split][sequence_name].append(annotation["is_legal"])
+                    # The object self.annotations[dataset][split][sequence_name] is a
+                    # dictionary mapping frame_id (int) to an annotation dict, NOT a list.
+                    # We must iterate by frame_id from 0 to the sequence length.
+
+                    # Get the sequence length from sequence_infos
+                    try:
+                        seq_length = self.sequence_infos[dataset][split][sequence_name]["length"]
+                    except KeyError:
+                        print(f"Warning: Could not find sequence info for {dataset}/{split}/{sequence_name} in _decouple_is_legal. Skipping.")
+                        continue
+                    
+                    seq_ann_dict = self.annotations[dataset][split][sequence_name]
+
+                    for frame_id in range(seq_length):
+                        try:
+                            # Access the annotation dict for this specific frame
+                            annotation = seq_ann_dict[frame_id]
+                            decoupled_is_legal[dataset][split][sequence_name].append(annotation["is_legal"])
+                        except KeyError:
+                            # This can happen if _init_annotations or _get_annotations failed
+                            # to create an entry for this frame_id.
+                            print(f"Warning: Missing annotation entry for {dataset}/{split}/{sequence_name} frame {frame_id}. Appending is_legal=False.")
+                            decoupled_is_legal[dataset][split][sequence_name].append(False)
+                        except TypeError:
+                             # This can happen if seq_ann_dict[frame_id] is not a dict (e.g., still a defaultdict)
+                            print(f"Warning: Invalid annotation entry for {dataset}/{split}/{sequence_name} frame {frame_id}. Appending is_legal=False.")
+                            decoupled_is_legal[dataset][split][sequence_name].append(False)
         # Reformat the 'is_legal' attribute from a list to a tensor,
         # which is more convenient for the sampling process (calculation-friendly).
         decoupled_is_legal_in_tensor = defaultdict(lambda: defaultdict(lambda: defaultdict(torch.Tensor)))

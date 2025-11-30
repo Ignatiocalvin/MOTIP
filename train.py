@@ -445,6 +445,10 @@ def train_one_epoch(
                 metrics.update(name="id_loss", value=id_loss.item())
             for k, v in detr_loss_dict.items():
                 metrics.update(name=k, value=v.item())
+            
+            # Log concept accuracy if available
+            if 'concept_accuracy' in detr_loss_dict:
+                metrics.update(name="concept_acc", value=detr_loss_dict['concept_accuracy'].item())
             loss /= accumulate_steps
             accelerator.backward(loss)  # use this line to replace loss.backward()
             if (step + 1) % accumulate_steps == 0:
@@ -588,12 +592,14 @@ def annotations_to_flatten_detr_targets(annotations: list, device):
     targets = []
     for annotation in annotations:      # scan by batch
         for ann in annotation:          # scan by frame
-            targets.append(
-                {
-                    "boxes": ann["bbox"].to(device),
-                    "labels": ann["category"].to(device),
-                }
-            )
+            target = {
+                "boxes": ann["bbox"].to(device),
+                "labels": ann["category"].to(device),
+            }
+            # Add concepts if available
+            if "concepts" in ann:
+                target["concepts"] = ann["concepts"].to(device)
+            targets.append(target)
     return targets
 
 

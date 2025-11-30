@@ -1,4 +1,124 @@
-# Root gitignore file
+# Data directories (but keep outputs/)
+data/
+datasets/
+**/data/
+**/datasets/
+.venv/
+MOTIP/.venv/
+logs/
+outputs/
 
-# PyCharm
+# Model checkpoints and weights (but allow outputs/)
+*.pth
+*.pt
+*.ckpt
+*.safetensors
+pretrains/
+checkpoints/
+weights/
+**/pretrains/
+**/checkpoints/
+**/weights/
+demo/
+
+# Large files and archives
+*.zip
+*.tar
+*.tar.gz
+*.tar.bz2
+*.rar
+*.7z
+
+# Video files (but allow small demo videos)
+*.mp4
+*.avi
+*.mov
+*.mkv
+*.flv
+*.wmv
+# Keep demo videos if they're small
+!**/demo/**/*.mp4
+!**/examples/**/*.mp4
+
+# Image datasets (but keep small examples)
+# Exclude large image collections but keep small examples
+**/images/
+**/img/
+# But keep example images
+!**/examples/**/*.jpg
+!**/examples/**/*.png
+!**/demo/**/*.jpg
+!**/demo/**/*.png
+
+# Temporary and cache files
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.so
+*.egg
+*.egg-info/
+dist/
+build/
+.pytest_cache/
+.coverage
+.tox/
+
+# Environment and configuration
+.env
+.env.local
+.env.*.local
+config.local.yaml
+*_local.yaml
+secrets.yaml
+
+# IDE and editor files
+.vscode/
 .idea/
+*.swp
+*.swo
+*~
+
+# System files
+.DS_Store
+Thumbs.db
+*.tmp
+
+# Jupyter notebooks with outputs (keep notebooks but clear outputs before commit)
+*.ipynb_checkpoints/
+
+# Wandb logs (but keep if they're part of outputs/)
+wandb/
+**/wandb/
+# Keep wandb logs in outputs
+!outputs/**/wandb/
+
+# Personal notes and drafts
+notes/
+drafts/
+todo.txt
+*.personal
+
+# Large model files but preserve directory structure
+# Comment out the patterns below if you want to keep specific model files
+# *.safetensors
+# *.bin
+# *.h5
+
+# Keep all outputs/ directory contents
+# The outputs/ directory contains your training results, logs, and model checkpoints
+# These are important for your research and should be preserved
+# (Individual .pth files are still excluded by pattern above, but you can override for specific ones)
+
+# Override for important model files in outputs (if needed)
+# !outputs/**/*.pth
+# !outputs/**/*.pt
+test_concept_debug.py
+test_concept_logging.py
+test_concepts_fix.py
+analyze_concept_issue.py
+check_tracker.sh
+find_demo_video.sh
+test_dancetrack.py
+models/ops/check.sh

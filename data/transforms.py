@@ -75,7 +75,13 @@ class MultiSimulate:
                 _legal_idxs = torch.all(_bbox[:, 1, :] > _bbox[:, 0, :], dim=1)
                 # Reshape to the original format:
                 _bbox = _bbox.reshape(-1, 4)
+
+                # --- FIX: Add 'concepts' to fields to be filtered ---
                 _need_to_select_fields = ["bbox", "category", "id", "visibility"]
+                if "concepts" in _ann:
+                    _need_to_select_fields.append("concepts")
+                # ---------------------------------------------------
+
                 if self.overflow_bbox is False:
                     _ann["bbox"] = _bbox
                 for _field in _need_to_select_fields:
@@ -255,7 +261,13 @@ class MultiRandomCrop:
             )
             # Reshape to the original format:
             _bbox = _bbox.reshape(-1, 4)
+            
+            # --- FIX: Add 'concepts' to fields to be filtered ---
             _need_to_select_fields = ["bbox", "category", "id", "visibility"]
+            if "concepts" in _annotation:
+                _need_to_select_fields.append("concepts")
+            # ---------------------------------------------------
+            
             if self.overflow_bbox is False:
                 _annotation["bbox"] = _bbox
             for _field in _need_to_select_fields:

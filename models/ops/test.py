@@ -15,6 +15,10 @@ import torch
 import torch.nn as nn
 from torch.autograd import gradcheck
 
+from torch.utils.cpp_extension import CUDA_HOME
+from torch.utils.cpp_extension import CppExtension
+from torch.utils.cpp_extension import CUDAExtension
+
 from functions.ms_deform_attn_func import MSDeformAttnFunction, ms_deform_attn_core_pytorch
 
 

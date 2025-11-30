@@ -39,6 +39,17 @@ def build(config: dict):
     detr_args.set_cost_class = config["DETR_SET_COST_CLASS"]
     detr_args.set_cost_bbox = config["DETR_SET_COST_BBOX"]
     detr_args.set_cost_giou = config["DETR_SET_COST_GIOU"]
+    
+    # Add concept-related parameters for MOTIP
+    if "MOTIP" in config and "N_CONCEPTS" in config["MOTIP"]:
+        detr_args.num_concepts = config["MOTIP"]["N_CONCEPTS"]
+        detr_args.concept_loss_coef = config["MOTIP"]["CONCEPT_LOSS_COEF"]
+        detr_args.losses = config["MOTIP"]["DETR_LOSSES"]
+    else:
+        # Fall back to top-level config if MOTIP section not available
+        detr_args.num_concepts = config.get("NUM_CONCEPTS", 0)
+        detr_args.concept_loss_coef = config.get("CONCEPT_LOSS_COEF", 0)
+        detr_args.losses = ['labels', 'boxes', 'cardinality']
 
     detr_framework = config["DETR_FRAMEWORK"].lower()
     match detr_framework:

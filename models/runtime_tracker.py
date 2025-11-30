@@ -91,7 +91,7 @@ class RuntimeTracker:
     @torch.no_grad()
     def update(self, image):
         detr_out = self.model(frames=image, part="detr")
-        scores, categories, boxes, output_embeds = self._get_activate_detections(detr_out=detr_out)
+        scores, categories, boxes, output_embeds, concepts = self._get_activate_detections(detr_out=detr_out)
         if self.only_detr:
             id_pred_labels = self.num_id_vocabulary * torch.ones(boxes.shape[0], dtype=torch.int64, device=boxes.device)
         else:
@@ -103,6 +103,7 @@ class RuntimeTracker:
         boxes = boxes[keep_idxs]
         output_embeds = output_embeds[keep_idxs]
         id_pred_labels = id_pred_labels[keep_idxs]
+        concepts = concepts[keep_idxs]
 
         # A hack implementation, before assign new id labels, update the id_queue to ensure the uniqueness of id labels:
         n_activate_id_labels = 0
@@ -145,6 +146,7 @@ class RuntimeTracker:
             "id": torch.tensor(
                 [self.id_label_to_id[_] for _ in id_labels.tolist()], dtype=torch.int64,
             ),
+            "concepts": concepts
         }
 
         # Update id_queue:
@@ -166,6 +168,7 @@ class RuntimeTracker:
         logits = detr_out["pred_logits"][0]
         boxes = detr_out["pred_boxes"][0]
         output_embeds = detr_out["outputs"][0]
+        concepts = detr_out["pred_concepts"]
         scores = logits.sigmoid()
         scores, categories = torch.max(scores, dim=-1)
         area = boxes[:, 2] * self.bbox_unnorm[2] * boxes[:, 3] * self.bbox_unnorm[3]
@@ -176,7 +179,8 @@ class RuntimeTracker:
         output_embeds = output_embeds[activate_indices]
         scores = scores[activate_indices]
         categories = categories[activate_indices]
-        return scores, categories, boxes, output_embeds
+        concepts = concepts[activate_indices]
+        return scores, categories, boxes, output_embeds, concepts
 
     def _get_id_pred_labels(self, boxes: torch.Tensor, output_embeds: torch.Tensor):
         if self.trajectory_features.shape[0] == 0:

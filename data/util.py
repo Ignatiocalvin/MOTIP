@@ -4,17 +4,41 @@ import torch
 import einops
 
 from utils.nested_tensor import nested_tensor_from_tensor_list
+import logging
+from typing import List
 
+logger = logging.getLogger(__name__)
+
+def read_file_to_list(file_path: str) -> List[str]:
+    """
+    Reads a file and returns a list of lines, stripping whitespace.
+    Handles FileNotFoundError.
+    """
+    if not file_path:
+        logger.error("read_file_to_list: received empty file_path.")
+        return []
+    try:
+        with open(file_path, 'r') as f:
+            lines = f.readlines()
+        return [line.strip() for line in lines if line.strip()]
+    except FileNotFoundError:
+        logger.error(f"File not found at: {file_path}")
+        return []
+    except Exception as e:
+        logger.error(f"Error reading file {file_path}: {e}")
+        return []
 
 def is_legal(annotation: dict):
     assert "id" in annotation, "Annotation must have 'id' field."
     assert "category" in annotation, "Annotation must have 'category' field."
     assert "bbox" in annotation, "Annotation must have 'bbox' field."
     assert "visibility" in annotation, "Annotation must have 'visibility' field."
-
+    assert "concepts" in annotation, "Annotation must have 'concepts' field."
+    
     assert len(annotation["id"]) == len(annotation["category"]) \
-           == len(annotation["bbox"]) == len(annotation["visibility"]), \
-           "The length of 'id', 'category', 'bbox', 'visibility' must be the same."
+           == len(annotation["bbox"]) == len(annotation["visibility"]) \
+           == len(annotation["concepts"]), \
+           "The length of 'id', 'category', 'bbox', 'visibility', and 'concepts' must be the same."
 
     # assert torch.unique(annotation["id"]).size(0) == annotation["id"].size(0), f"IDs must be unique."
     _id_unique = torch.unique(annotation["id"]).size(0) == annotation["id"].size(0)     # for PersonPath22
@@ -33,6 +57,7 @@ def append_annotation(
         category: int,
         bbox: list,
         visibility: float,
+        concepts: int,
 ):
     annotation["id"] = torch.cat([
         annotation["id"],
@@ -49,6 +74,10 @@ def append_annotation(
     annotation["visibility"] = torch.cat([
         annotation["visibility"],
         torch.tensor([visibility], dtype=torch.float32)
+    ])
+    annotation["concepts"] = torch.cat([
+        annotation["concepts"],
+        torch.tensor([concepts], dtype=torch.int64) # Store as tensor
     ])
     return annotation
 

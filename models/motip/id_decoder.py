@@ -37,17 +37,48 @@ class IDDecoder(nn.Module):
         self.use_aux_loss = use_aux_loss
         self.use_shared_aux_head = use_shared_aux_head
 
-        self.word_to_embed = nn.Linear(self.num_id_vocabulary + 1, self.id_dim, bias=False)
-        embed_to_word = nn.Linear(self.id_dim, self.num_id_vocabulary + 1, bias=False)
 
-        if self.use_aux_loss and not self.use_shared_aux_head:
+        self.word_to_embed = nn.Linear(self.num_id_vocabulary + 1, self.id_dim, bias=False)
+        # Purpose: Converts discrete ID labels into continuous embeddings
+
+        # Dimensions:
+        # Input: num_id_vocabulary + 1 (e.g., 1001 if vocab=1000)
+        # Output: id_dim (e.g., 256-dimensional embedding)
+
+        embed_to_word = nn.Linear(self.id_dim, self.num_id_vocabulary + 1, bias=False)
+        # Purpose: Converts learned embeddings back to ID predictions
+
+        # Dimensions:
+        # Input: id_dim (e.g., 256-dimensional embedding)
+        # Output: num_id_vocabulary + 1 (logits over all possible IDs)
+
+
+        # This code creates multiple prediction heads (one for each transformer layer) with two different strategies based on configuration flags.
+        if self.use_aux_loss and not self.use_shared_aux_head: # In transformer models, auxiliary loss helps training by adding supervision at intermediate layers:
+            # # _get_clones creates independent copies of the module
+            # Result: Each layer gets its own independent embed_to_word module
             self.embed_to_word_layers = _get_clones(embed_to_word, self.num_layers)
+            # self.embed_to_word_layers = [
+                # embed_to_word_layer_0,  # Independent parameters
+                # embed_to_word_layer_1,  # Independent parameters  
+                # embed_to_word_layer_2,  # Independent parameters
+            # ]
         else:
+            # When: use_aux_loss=False OR use_shared_aux_head=True
+            # Result: All layers share the same embed_to_word module
             self.embed_to_word_layers = nn.ModuleList([embed_to_word for _ in range(self.num_layers)])
         pass
 
         # Related Position Embeddings:
+        # In video tracking, the temporal relationship between frames matters enormously:
+
+            # An object at frame 5 is more likely to be the same as an object at frame 4 than at frame 1
+            # The model needs to understand "how far apart in time" two observations are
+
         self.rel_pos_embeds = nn.Parameter(
+            # Shape: (num_layers, rel_pe_length, n_heads)
+            # Purpose: Learnable embeddings for different temporal distances
+            # Example: If rel_pe_length=50, it can handle temporal distances from -24 to +25
             torch.zeros((self.num_layers, self.rel_pe_length, self.n_heads), dtype=torch.float32)
         )
         # Prepare others for rel pe:
@@ -55,7 +86,8 @@ class IDDecoder(nn.Module):
         curr_t_idxs, traj_t_idxs = torch.meshgrid([t_idxs, t_idxs])
         self.rel_pos_map = (curr_t_idxs - traj_t_idxs)      # [curr_t_idx, traj_t_idx] -> rel_pos, like [1, 0] = 1
         pass
-
+        
+        # Purpose: Allows unknown objects in the same frame to communicate with each other
         self_attn = nn.MultiheadAttention(
             embed_dim=self.feature_dim + self.id_dim,
             num_heads=self.n_heads,
@@ -64,6 +96,8 @@ class IDDecoder(nn.Module):
             add_zero_attn=True,
         )
         self_attn_norm = nn.LayerNorm(self.feature_dim + self.id_dim)
+
+        # Purpose: Allows unknown objects to attend to trajectory history for ID prediction
         cross_attn = nn.MultiheadAttention(
             embed_dim=self.feature_dim + self.id_dim,
             num_heads=self.n_heads,
@@ -72,12 +106,45 @@ class IDDecoder(nn.Module):
             add_zero_attn=True,
         )
         cross_attn_norm = nn.LayerNorm(self.feature_dim + self.id_dim)
+
+        # Purpose: Non-linear processing after attention mechanisms
         ffn = FFN(
             d_model=self.feature_dim + self.id_dim,
             d_ffn=(self.feature_dim + self.id_dim) * self.ffn_dim_ratio,
             activation=nn.GELU(),
         )
         ffn_norm = nn.LayerNorm(self.feature_dim + self.id_dim)
+
+        # Notice the different numbers of layers:
+            # Self-attention: num_layers - 1 (e.g., if 3 layers total → 2 self-attention layers)
+            # Cross-attention: num_layers (e.g., if 3 layers total → 3 cross-attention layers)
+            # FFN: num_layers (e.g., if 3 layers total → 3 FFN layers)
+
+            # Self-attention only happens from layer 1 onwards, not layer 0
+
+            # n_layers = 3
+            # Layer 0:
+            # ├── Cross-attention (layer 0)
+            # ├── Cross-attention norm (layer 0) 
+            # ├── FFN (layer 0)
+            # └── FFN norm (layer 0)
+
+            # Layer 1:
+            # ├── Self-attention (layer 0)  ← First self-attention layer
+            # ├── Self-attention norm (layer 0)
+            # ├── Cross-attention (layer 1)
+            # ├── Cross-attention norm (layer 1)
+            # ├── FFN (layer 1)
+            # └── FFN norm (layer 1)
+
+            # Layer 2:
+            # ├── Self-attention (layer 1)  ← Second self-attention layer
+            # ├── Self-attention norm (layer 1)
+            # ├── Cross-attention (layer 2)
+            # ├── Cross-attention norm (layer 2)
+            # ├── FFN (layer 2)
+            # └── FFN norm (layer 2)
+        
 
         self.self_attn_layers = _get_clones(self_attn, self.num_layers - 1)
         self.self_attn_norm_layers = _get_clones(self_attn_norm, self.num_layers - 1)
