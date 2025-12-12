@@ -80,6 +80,15 @@ fi
 echo "Running preprocessing script..."
 python preprocess_pdestre.py
 
+# Move splits folder if it exists outside
+if [ -d "../splits" ]; then
+    mv ../splits .
+    echo "Moved splits folder into P-DESTRE directory"
+elif [ -d "../../splits" ]; then
+    mv ../../splits .
+    echo "Moved splits folder from parent directory"
+fi
+
 echo "Dataset download and preprocessing completed successfully!"
 echo "Extracted frames are available in the 'images/' directory"
 
