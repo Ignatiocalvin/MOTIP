@@ -26,6 +26,16 @@ fi
 
 cd P-DESTRE
 
+# Rename annotation folder to annotations if needed
+if [ -d "annotation" ] && [ ! -d "annotations" ]; then
+    mv annotation annotations
+    echo "Renamed 'annotation' folder to 'annotations'"
+elif [ -d "annotations" ]; then
+    echo "Annotations folder already exists"
+else
+    echo "Warning: Neither 'annotation' nor 'annotations' folder found"
+fi
+
 # Remove specific annotation and video files
 echo "Removing specified files..."
 
