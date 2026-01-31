@@ -103,7 +103,11 @@ class RuntimeTracker:
         boxes = boxes[keep_idxs]
         output_embeds = output_embeds[keep_idxs]
         id_pred_labels = id_pred_labels[keep_idxs]
-        concepts = concepts[keep_idxs]
+        # Handle concepts as a list of tensors (one per concept type)
+        if isinstance(concepts, list):
+            concepts = [c[keep_idxs] for c in concepts]
+        else:
+            concepts = concepts[keep_idxs]
 
         # A hack implementation, before assign new id labels, update the id_queue to ensure the uniqueness of id labels:
         n_activate_id_labels = 0
@@ -137,6 +141,24 @@ class RuntimeTracker:
             print(id_labels, id_labels.shape)
             exit(-1)
 
+        # Convert concepts list to a format suitable for per-object iteration
+        # If concepts is a list, stack into (N_objects, N_concepts) 
+        # by taking argmax of each concept and concatenating
+        if isinstance(concepts, list) and len(concepts) > 0:
+            # Check if we have any objects
+            if concepts[0].shape[0] > 0:
+                # Get predicted class for each concept (argmax)
+                concept_preds = torch.stack([c.argmax(dim=-1) for c in concepts], dim=-1)  # (N_objects, N_concepts)
+                concepts_for_results = concept_preds
+            else:
+                # No objects, create empty tensor with correct shape
+                n_concepts = len(concepts)
+                concepts_for_results = torch.empty((0, n_concepts), dtype=torch.int64, device=concepts[0].device)
+        elif concepts is not None:
+            concepts_for_results = concepts
+        else:
+            concepts_for_results = torch.empty((0,), dtype=torch.int64)
+
         # Update the results:
         self.current_track_results = {
             "score": scores,
@@ -146,7 +168,7 @@ class RuntimeTracker:
             "id": torch.tensor(
                 [self.id_label_to_id[_] for _ in id_labels.tolist()], dtype=torch.int64,
             ),
-            "concepts": concepts
+            "concepts": concepts_for_results
         }
 
         # Update id_queue:
@@ -168,7 +190,7 @@ class RuntimeTracker:
         logits = detr_out["pred_logits"][0]
         boxes = detr_out["pred_boxes"][0]
         output_embeds = detr_out["outputs"][0]
-        concepts = detr_out["pred_concepts"]
+        pred_concepts = detr_out["pred_concepts"]
         scores = logits.sigmoid()
         scores, categories = torch.max(scores, dim=-1)
         area = boxes[:, 2] * self.bbox_unnorm[2] * boxes[:, 3] * self.bbox_unnorm[3]
@@ -179,7 +201,13 @@ class RuntimeTracker:
         output_embeds = output_embeds[activate_indices]
         scores = scores[activate_indices]
         categories = categories[activate_indices]
-        concepts = concepts[activate_indices]
+        # Handle pred_concepts as a list of tensors (one per concept type)
+        if isinstance(pred_concepts, list):
+            # Each tensor in list is (B, N_queries, n_classes) or (N_queries, n_classes)
+            concepts = [c[0][activate_indices] if c.dim() == 3 else c[activate_indices] for c in pred_concepts]
+        else:
+            # Single tensor case (legacy)
+            concepts = pred_concepts[0][activate_indices] if pred_concepts.dim() == 3 else pred_concepts[activate_indices]
         return scores, categories, boxes, output_embeds, concepts
 
     def _get_id_pred_labels(self, boxes: torch.Tensor, output_embeds: torch.Tensor):

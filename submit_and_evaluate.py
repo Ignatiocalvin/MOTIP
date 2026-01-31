@@ -220,7 +220,7 @@ def submit_and_evaluate_one_model(
             logger=logger,
         )
         # Write the results to the submit file:
-        if dataset in ["DanceTrack", "SportsMOT", "MOT17", "PersonPath22_Inference", "BFT"]:
+        if dataset in ["DanceTrack", "SportsMOT", "MOT17", "PersonPath22_Inference", "BFT", "P-DESTRE"]:
             sequence_tracker_results = []
             for t in range(len(sequence_results)):
                 for obj_id, score, category, bbox, concepts in zip(
@@ -230,13 +230,15 @@ def submit_and_evaluate_one_model(
                         sequence_results[t]["bbox"],  # [x, y, w, h]
                         sequence_results[t]["concepts"],
                 ):
-                    concept_probs = concepts.sigmoid().cpu().numpy()
-                    # Create a comma-separated string of concept probabilities
-                    concept_str = ",".join([f"{c:.4f}" for c in concept_probs])
+                    # Concepts are now predicted class indices (not logits)
+                    if concepts.dim() == 0:
+                        concept_str = f"{concepts.item()}"
+                    else:
+                        concept_str = ",".join([f"{c.item()}" for c in concepts])
                     sequence_tracker_results.append(
                         f"{t + 1},{obj_id.item()},"
-                        f"{bbox.item():.2f},{bbox.item():.2f},{bbox.item():.2f},{bbox.item():.2f},"
-                        f"{score.item():.4f},-1,-1,-1," # Use real score and correct bbox format
+                        f"{bbox[0].item():.2f},{bbox[1].item():.2f},{bbox[2].item():.2f},{bbox[3].item():.2f},"
+                        f"{score.item():.4f},-1,-1,-1,"
                         f"{concept_str}\n"
                     )
             if not is_fake:
@@ -270,6 +272,9 @@ def submit_and_evaluate_one_model(
             if dataset in ["DanceTrack", "SportsMOT", "MOT17", "BFT"]:
                 gt_dir = os.path.join(data_root, dataset, data_split)
                 tracker_dir = os.path.join(outputs_dir, "tracker")
+            elif dataset in ["P-DESTRE"]:
+                gt_dir = os.path.join(data_root, dataset, "annotations")
+                tracker_dir = os.path.join(outputs_dir, "tracker")
             elif dataset in ["PersonPath22_Inference"]:
                 gt_dir = os.path.join(data_root, dataset, "gts", "person_path_22-test")
                 tracker_dir = os.path.join(outputs_dir, "tracker")
@@ -290,6 +295,12 @@ def submit_and_evaluate_one_model(
                     "--TRACKERS_FOLDER": tracker_dir,
                 }
                 cmd = ["python", "TrackEval/scripts/run_mot_challenge.py"]
+            elif dataset in ["P-DESTRE"]:
+                # P-DESTRE uses splits folder for sequence lists
+                # Skip standard evaluation for now, just log success
+                logger.success(f"P-DESTRE tracking results saved to {tracker_dir}", only_main=True)
+                metrics = Metrics()
+                return metrics
             elif dataset in ["PersonPath22_Inference"]:
                 args = {
                     "--SPLIT_TO_EVAL": data_split,

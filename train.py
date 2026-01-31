@@ -28,6 +28,26 @@ from models.misc import get_model
 from utils.nested_tensor import NestedTensor
 from submit_and_evaluate import submit_and_evaluate_one_model
 
+# CLIP classifier for comparison (optional, initialized lazily)
+_clip_classifier = None
+_clip_initialized = False
+
+def get_clip_classifier_if_available(device):
+    """Get CLIP classifier if available, otherwise return None."""
+    global _clip_classifier, _clip_initialized
+    if _clip_initialized:
+        return _clip_classifier
+    try:
+        from utils.clip_classifier import get_clip_classifier
+        _clip_classifier = get_clip_classifier(device=str(device))
+        _clip_classifier.initialize()
+        _clip_initialized = True
+        return _clip_classifier
+    except Exception as e:
+        print(f"[Warning] CLIP classifier not available: {e}")
+        _clip_initialized = True  # Don't try again
+        return None
+
 
 def train_engine(config: dict):
     # Init some settings:
@@ -96,23 +116,32 @@ def train_engine(config: dict):
     }
 
     # Build MOTIP model:
+    logger.info(log="[DEBUG] Starting build_motip...")
     model, detr_criterion = build_motip(config=config)
-    # Load the pre-trained DETR:
-    load_detr_pretrain(
-        model=model, pretrain_path=config["DETR_PRETRAIN"], num_classes=config["NUM_CLASSES"],
-        default_class_idx=config["DETR_DEFAULT_CLASS_IDX"] if "DETR_DEFAULT_CLASS_IDX" in config else None,
-    )
-    logger.success(
-        log=f"Load the pre-trained DETR from '{config['DETR_PRETRAIN']}'. "
-    )
+    logger.info(log="[DEBUG] build_motip completed successfully")
+    # Load the pre-trained DETR (skip for RF-DETR which uses its own backbone weights):
+    if config.get("DETR_PRETRAIN") is not None:
+        load_detr_pretrain(
+            model=model, pretrain_path=config["DETR_PRETRAIN"], num_classes=config["NUM_CLASSES"],
+            default_class_idx=config["DETR_DEFAULT_CLASS_IDX"] if "DETR_DEFAULT_CLASS_IDX" in config else None,
+        )
+        logger.success(
+            log=f"Load the pre-trained DETR from '{config['DETR_PRETRAIN']}'. "
+        )
+    else:
+        logger.info(log="Skipping DETR pretrain loading (training from scratch or using backbone pretraining).")
     # Build Loss Function:
+    logger.info(log="[DEBUG] Building ID criterion...")
     id_criterion = build_id_criterion(config=config)
+    logger.info(log="[DEBUG] ID criterion built successfully")
 
     # Build Optimizer:
+    logger.info(log="[DEBUG] Setting up optimizer...")
     if config["DETR_NUM_TRAIN_FRAMES"] == 0:
         for n, p in model.named_parameters():
             if "detr" in n:
                 p.requires_grad = False     # only train the MOTIP part.
+    logger.info(log="[DEBUG] Getting parameter groups...")
     param_groups = get_param_groups(model, config)
     optimizer = AdamW(
         params=param_groups,
@@ -151,16 +180,21 @@ def train_engine(config: dict):
                 f"Start from epoch {train_states['start_epoch']}, step {train_states['global_step']}."
         )
 
+    logger.info(log="[DEBUG] Calling accelerator.prepare()...")
     train_dataloader, model, optimizer = accelerator.prepare(
         train_dataloader, model, optimizer,
         # device_placement=[False]        # whether to place the data on the device
     )
+    logger.info(log="[DEBUG] accelerator.prepare() completed")
 
     for epoch in range(train_states["start_epoch"], config["EPOCHS"]):
         logger.info(log=f"Start training epoch {epoch}.")
+        logger.info(log=f"[DEBUG] Number of concepts in model: {getattr(model.module if hasattr(model, 'module') else model, 'detr', None) and getattr((model.module if hasattr(model, 'module') else model).detr, 'num_concepts', 'N/A')}")
         epoch_start_timestamp = TPS.timestamp()
         # Prepare the sampler for the current epoch:
+        logger.info(log=f"[DEBUG] Preparing sampler for epoch {epoch}")
         train_sampler.prepare_for_epoch(epoch=epoch)
+        logger.info(log=f"[DEBUG] Sampler prepared, starting train_one_epoch")
         # Train one epoch:
         train_metrics = train_one_epoch(
             accelerator=accelerator,
@@ -187,6 +221,10 @@ def train_engine(config: dict):
             outputs_dir=outputs_dir,
             is_last_epochs=(epoch == config["EPOCHS"] - 1),
             multi_last_checkpoints=config["MULTI_LAST_CHECKPOINTS"],
+            # For intra-epoch checkpointing:
+            save_checkpoint_every_n_steps=config.get("SAVE_CHECKPOINT_EVERY_N_STEPS", 0),
+            resume_from_step=config.get("RESUME_FROM_STEP", 0) if epoch == train_states["start_epoch"] else 0,
+            scheduler=scheduler,
         )
 
         # Get learning rate:
@@ -284,9 +322,14 @@ def train_one_epoch(
         outputs_dir: str = None,
         is_last_epochs: bool = False,
         multi_last_checkpoints: int = 0,
+        # For intra-epoch checkpointing:
+        save_checkpoint_every_n_steps: int = 0,
+        resume_from_step: int = 0,
+        scheduler=None,
 ):
     current_last_checkpoint_idx = 0
 
+    logger.info(log=f"[DEBUG] train_one_epoch starting. Model type: {type(model).__name__}")
     model.train()
     tps = TPS()     # time per step
     metrics = Metrics()
@@ -306,7 +349,18 @@ def train_one_epoch(
         else:
             other_params.append(param)
 
+    # Log resume info if resuming from mid-epoch:
+    if resume_from_step > 0:
+        logger.info(log=f"Resuming from step {resume_from_step}. Skipping first {resume_from_step} steps...")
+
+    logger.info(log=f"[DEBUG] Starting dataloader iteration. Total steps: {len(dataloader)}")
     for step, samples in enumerate(dataloader):
+        # Skip steps if resuming from mid-epoch checkpoint:
+        if step < resume_from_step:
+            if step % 1000 == 0:
+                logger.info(log=f"Skipping step {step}/{resume_from_step}...")
+            continue
+
         images, annotations, metas = samples["images"], samples["annotations"], samples["metas"]
         # Normalize the images:
         # (Normally, it should be done in the dataloader, but here we do it in the training loop (on cuda).)
@@ -444,11 +498,112 @@ def train_one_epoch(
             if id_loss is not None:
                 metrics.update(name="id_loss", value=id_loss.item())
             for k, v in detr_loss_dict.items():
+                # Skip prediction/target tensors - they're for detailed logging only
+                # These can have _i suffix for auxiliary layers (e.g., gender_predictions_0)
+                if '_predictions' in k or '_targets' in k:
+                    continue
                 metrics.update(name=k, value=v.item())
             
             # Log concept accuracy if available
             if 'concept_accuracy' in detr_loss_dict:
                 metrics.update(name="concept_acc", value=detr_loss_dict['concept_accuracy'].item())
+            
+            # Periodic detailed concept logging (every 500 steps)
+            if step % 500 == 0 and step > 0:
+                concept_log_lines = []
+                motip_gender_preds = None
+                motip_upper_body_preds = None
+                gt_gender = None
+                gt_upper_body = None
+                
+                for concept_name in ['gender', 'upper_body']:                
+                    pred_key = f'{concept_name}_predictions'
+                    target_key = f'{concept_name}_targets'
+                    if pred_key in detr_loss_dict and target_key in detr_loss_dict:
+                        preds = detr_loss_dict[pred_key]
+                        targets = detr_loss_dict[target_key]
+                        
+                        # Store for CLIP comparison
+                        if concept_name == 'gender':
+                            motip_gender_preds = [p.item() for p in preds]
+                            gt_gender = [t.item() for t in targets]
+                        elif concept_name == 'upper_body':
+                            motip_upper_body_preds = [p.item() for p in preds]
+                            gt_upper_body = [t.item() for t in targets]
+                        
+                        # Limit to first 20 samples to avoid overwhelming logs
+                        n_samples = min(20, len(preds))
+                        if n_samples > 0:
+                            pred_str = ','.join([str(p.item()) for p in preds[:n_samples]])
+                            tgt_str = ','.join([str(t.item()) for t in targets[:n_samples]])
+                            matches = sum([1 for i in range(n_samples) if preds[i] == targets[i]])
+                            acc = (matches / n_samples) * 100 if n_samples > 0 else 0
+                            concept_log_lines.append(
+                                f"[{concept_name.upper()}] MOTIP=[{pred_str}] GT=[{tgt_str}] ({matches}/{n_samples}={acc:.1f}%)"
+                            )
+                
+                # Try to get CLIP predictions for comparison
+                clip_classifier = get_clip_classifier_if_available(device)
+                if clip_classifier is not None and gt_gender is not None and len(gt_gender) > 0:
+                    try:
+                        # Extract bounding boxes from annotations for CLIP classification
+                        # Use the first frame's annotations for simplicity
+                        if len(annotations) > 0 and len(annotations[0]) > 0:
+                            frame_annot = annotations[0][0]  # First batch, first frame
+                            if 'boxes' in frame_annot and len(frame_annot['boxes']) > 0:
+                                # Get original image (before normalization) for CLIP
+                                # Note: images are already normalized, so we denormalize for CLIP
+                                img_tensor = images.tensors[0, 0]  # First batch, first frame
+                                
+                                # Denormalize for CLIP
+                                mean = torch.tensor([0.485, 0.456, 0.406], device=device).view(3, 1, 1)
+                                std = torch.tensor([0.229, 0.224, 0.225], device=device).view(3, 1, 1)
+                                img_denorm = img_tensor * std + mean
+                                img_denorm = torch.clamp(img_denorm, 0, 1)
+                                
+                                # Convert normalized boxes to pixel coords
+                                _, h, w = img_tensor.shape
+                                boxes = frame_annot['boxes'][:len(gt_gender)]  # Match number of GT
+                                bboxes = []
+                                for box in boxes:
+                                    cx, cy, bw, bh = box.tolist()
+                                    x1 = int((cx - bw/2) * w)
+                                    y1 = int((cy - bh/2) * h)
+                                    x2 = int((cx + bw/2) * w)
+                                    y2 = int((cy + bh/2) * h)
+                                    bboxes.append([x1, y1, x2, y2])
+                                
+                                # Get CLIP predictions
+                                clip_gender_preds = clip_classifier.classify_batch_from_image(
+                                    img_denorm, bboxes, 'gender'
+                                )
+                                clip_upper_body_preds = clip_classifier.classify_batch_from_image(
+                                    img_denorm, bboxes, 'upper_body'
+                                )
+                                
+                                clip_gender = [p[0] for p in clip_gender_preds]
+                                clip_upper_body = [p[0] for p in clip_upper_body_preds]
+                                
+                                # Add CLIP comparison to logs
+                                n_samples = min(20, len(clip_gender))
+                                if n_samples > 0:
+                                    clip_gender_str = ','.join([str(c) for c in clip_gender[:n_samples]])
+                                    clip_ub_str = ','.join([str(c) for c in clip_upper_body[:n_samples]])
+                                    
+                                    # Calculate CLIP accuracies
+                                    clip_gender_matches = sum(1 for c, g in zip(clip_gender[:n_samples], gt_gender[:n_samples]) if c == g)
+                                    clip_ub_matches = sum(1 for c, g in zip(clip_upper_body[:n_samples], gt_upper_body[:n_samples]) if c == g)
+                                    clip_gender_acc = clip_gender_matches / n_samples * 100
+                                    clip_ub_acc = clip_ub_matches / n_samples * 100
+                                    
+                                    concept_log_lines.append(f"[GENDER] CLIP=[{clip_gender_str}] ({clip_gender_matches}/{n_samples}={clip_gender_acc:.1f}%)")
+                                    concept_log_lines.append(f"[UPPER_BODY] CLIP=[{clip_ub_str}] ({clip_ub_matches}/{n_samples}={clip_ub_acc:.1f}%)")
+                    except Exception as e:
+                        concept_log_lines.append(f"[CLIP] Error getting predictions: {e}")
+                
+                if concept_log_lines:
+                    logger.info(log=f"\n[Concept Details - Step {step}]\n" + "\n".join(concept_log_lines))
+            
             loss /= accumulate_steps
             accelerator.backward(loss)  # use this line to replace loss.backward()
             if (step + 1) % accumulate_steps == 0:
@@ -503,6 +658,27 @@ def train_one_epoch(
                 metrics=metrics,
                 global_step=states["global_step"],
             )
+        
+        # Intra-epoch checkpoint saving:
+        if save_checkpoint_every_n_steps > 0 and (step + 1) % save_checkpoint_every_n_steps == 0:
+            _intra_dir = os.path.join(outputs_dir, "intra_epoch_checkpoints")
+            os.makedirs(_intra_dir, exist_ok=True)
+            _intra_path = os.path.join(_intra_dir, f"epoch_{epoch}_step_{step + 1}.pth")
+            save_checkpoint(
+                model=model,
+                path=_intra_path,
+                states={
+                    **states,
+                    "intra_epoch_step": step + 1,  # Store the step for resuming
+                },
+                optimizer=optimizer,
+                scheduler=scheduler,
+                only_detr=only_detr,
+            )
+            logger.info(
+                log=f"[Intra-epoch checkpoint] Saved at epoch {epoch}, step {step + 1} -> {_intra_path}"
+            )
+        
         # For multi last checkpoints:
         if is_last_epochs and multi_last_checkpoints > 0:
             if (step + 1) == int(math.ceil((len(dataloader) / multi_last_checkpoints) * (current_last_checkpoint_idx + 1))):
@@ -634,10 +810,18 @@ def tensor_dict_cat(tensor_dict1, tensor_dict2, dim=0):
                 res_tensor_dict[k] = tensor_dict_cat(tensor_dict1[k], tensor_dict2[k], dim=dim)
             elif isinstance(tensor_dict1[k], list):
                 assert len(tensor_dict1[k]) == len(tensor_dict2[k]), "The list should have the same length."
-                res_tensor_dict[k] = [
-                    tensor_dict_cat(tensor_dict1[k][_], tensor_dict2[k][_], dim=dim)
-                    for _ in range(len(tensor_dict1[k]))
-                ]
+                # Handle list of tensors (e.g., pred_concepts with multiple concept heads)
+                if len(tensor_dict1[k]) > 0 and isinstance(tensor_dict1[k][0], torch.Tensor):
+                    res_tensor_dict[k] = [
+                        torch.cat([tensor_dict1[k][i], tensor_dict2[k][i]], dim=dim)
+                        for i in range(len(tensor_dict1[k]))
+                    ]
+                else:
+                    # Handle list of dicts (e.g., aux_outputs)
+                    res_tensor_dict[k] = [
+                        tensor_dict_cat(tensor_dict1[k][_], tensor_dict2[k][_], dim=dim)
+                        for _ in range(len(tensor_dict1[k]))
+                    ]
             else:
                 raise ValueError(f"Unsupported type {type(tensor_dict1[k])} in the tensor dict concat.")
         return dict(res_tensor_dict)
@@ -651,10 +835,18 @@ def tensor_dict_index_select(tensor_dict, index, dim=0):
         elif isinstance(tensor_dict[k], dict):
             res_tensor_dict[k] = tensor_dict_index_select(tensor_dict[k], index=index, dim=dim)
         elif isinstance(tensor_dict[k], list):
-            res_tensor_dict[k] = [
-                tensor_dict_index_select(tensor_dict[k][_], index=index, dim=dim)
-                for _ in range(len(tensor_dict[k]))
-            ]
+            # Handle list of tensors (e.g., pred_concepts with multiple concept heads)
+            if len(tensor_dict[k]) > 0 and isinstance(tensor_dict[k][0], torch.Tensor):
+                res_tensor_dict[k] = [
+                    torch.index_select(tensor_dict[k][i], index=index, dim=dim).contiguous()
+                    for i in range(len(tensor_dict[k]))
+                ]
+            else:
+                # Handle list of dicts (e.g., aux_outputs)
+                res_tensor_dict[k] = [
+                    tensor_dict_index_select(tensor_dict[k][_], index=index, dim=dim)
+                    for _ in range(len(tensor_dict[k]))
+                ]
         else:
             raise ValueError(f"Unsupported type {type(tensor_dict[k])} in the tensor dict index select.")
     return dict(res_tensor_dict)

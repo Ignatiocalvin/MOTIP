@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
-#SBATCH --job-name=mk21
-#SBATCH --partition=gpu_a100_il
+#SBATCH --job-name=mk2
+#SBATCH --partition=gpu_mi300
 #SBATCH --gres=gpu:1
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=8
-#SBATCH --time 00:30:00
+#SBATCH --time 72:00:00
 #SBATCH --mem=16G
-#SBATCH --output=logs/make_%j_concept_id_logs.out
-#SBATCH --error=logs/make_%j_concept_id_logs.err
+#SBATCH --output=logs/make_%j_concept_id_logs_latest.out
+#SBATCH --error=logs/make_%j_concept_id_logs_latest.err
 # ------------------------------------------------------------------------------------------------
 # Deformable DETR
 # Copyright (c) 2020 SenseTime. All Rights Reserved.

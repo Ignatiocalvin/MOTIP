@@ -1,0 +1,49 @@
+Lmod has detected the following error: The following module(s) are unknown:
+"devel/python/3.12.3_intel_2023.1.0"
+
+Please check the spelling or version number. Also try "module spider ..."
+It is also possible your cache file is out-of-date; it may help to try:
+  $ module --ignore_cache load "devel/python/3.12.3_intel_2023.1.0"
+
+Also make sure that all modulefiles written in TCL start with the string
+#%Module
+
+
+
+/home/ma/ma_ma/ma_ighidaya/miniconda3/envs/MOTIP/lib/python3.12/site-packages/torch/utils/cpp_extension.py:426: UserWarning: There are no g++ version bounds defined for CUDA version 11.8
+  warnings.warn(f'There are no {compiler_name} version bounds defined for CUDA version {cuda_str_version}')
+Emitting ninja build file /pfs/work9/workspace/scratch/ma_ighidaya-thesis_ignatio/MOTIP/models/ops/build/temp.linux-x86_64-cpython-312/build.ninja...
+Compiling objects...
+Allowing ninja to set a default number of workers... (overridable by setting the environment variable MAX_JOBS=N)
+/home/ma/ma_ma/ma_ighidaya/miniconda3/envs/MOTIP/lib/python3.12/site-packages/setuptools/_distutils/cmd.py:90: SetuptoolsDeprecationWarning: setup.py install is deprecated.
+!!
+
+        ********************************************************************************
+        Please avoid running ``setup.py`` directly.
+        Instead, use pypa/build, pypa/installer or other
+        standards-based tools.
+
+        See https://blog.ganssle.io/articles/2021/10/setup-py-deprecated.html for details.
+        ********************************************************************************
+
+!!
+  self.initialize_options()
+/home/ma/ma_ma/ma_ighidaya/miniconda3/envs/MOTIP/lib/python3.12/site-packages/setuptools/_distutils/cmd.py:90: EasyInstallDeprecationWarning: easy_install command is deprecated.
+!!
+
+        ********************************************************************************
+        Please avoid running ``setup.py`` and ``easy_install``.
+        Instead, use pypa/build, pypa/installer or other
+        standards-based tools.
+
+        See https://github.com/pypa/setuptools/issues/917 for details.
+        ********************************************************************************
+
+!!
+  self.initialize_options()
+build/bdist.linux-x86_64/egg/modules/ms_deform_attn.py:83: SyntaxWarning: invalid escape sequence '\s'
+  :param input_flatten               (N, \sum_{l=0}^{L-1} H_l \cdot W_l, C)
+zip_safe flag not set; analyzing archive contents...
+__pycache__.MultiScaleDeformableAttention.cpython-312: module references __file__
+/pfs/data6/home/ma/ma_ma/ma_ighidaya/miniconda3/envs/MOTIP/lib/python3.12/site-packages/MultiScaleDeformableAttention-1.0-py3.12-linux-x86_64.egg/modules/ms_deform_attn.py:83: SyntaxWarning: invalid escape sequence '\s'
+  :param input_flatten               (N, \sum_{l=0}^{L-1} H_l \cdot W_l, C)

@@ -1,0 +1,39 @@
+# Standard MOTIP Configuration for P-DESTRE (WITHOUT Concept Prediction)
+# This config disables concept heads to run vanilla MOTIP
+
+# Inherit from the base DanceTrack config
+SUPER_CONFIG_PATH: ./configs/r50_deformable_detr_motip_dancetrack.yaml
+
+# --- Override Data Settings ---
+DATASETS: [P-DESTRE]
+DATASET_SPLITS: [Train_3]
+INFERENCE_DATASET: P-DESTRE
+INFERENCE_SPLIT: val_3
+
+# --- CRITICAL: Sample settings to reduce iterations (same as fast config) ---
+SAMPLE_STEPS: [0, ]
+SAMPLE_LENGTHS: [15, ]
+SAMPLE_INTERVALS: [4, ]
+
+# --- Disable Concept Prediction ---
+NUM_CONCEPTS: 0  # Override base config
+
+# --- Standard MOTIP Settings (No Concept Loss) ---
+MOTIP:
+  N_CONCEPTS: 0  # Explicitly disable concepts
+  DETR_LOSSES: [labels, boxes, cardinality]  # Standard losses only
+  CONCEPT_LOSS_COEF: 0  # No concept loss
+
+# Training settings
+EPOCHS: 3
+NUM_WORKERS: 0  # Set to 0 to bypass multiprocessing deadlock with num_concepts=0
+PREFETCH_FACTOR: 4
+
+# Intra-epoch checkpointing
+SAVE_CHECKPOINT_EVERY_N_STEPS: 5000
+RESUME_FROM_STEP: 0
+
+# Outputs
+EXP_NAME: r50_motip_pdestre_fold_3_no_concepts
+SAVE_CHECKPOINT_PER_EPOCH: 1
+MULTI_LAST_CHECKPOINTS: 4

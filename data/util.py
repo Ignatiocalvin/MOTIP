@@ -33,12 +33,20 @@ def is_legal(annotation: dict):
     assert "category" in annotation, "Annotation must have 'category' field."
     assert "bbox" in annotation, "Annotation must have 'bbox' field."
     assert "visibility" in annotation, "Annotation must have 'visibility' field."
-    assert "concepts" in annotation, "Annotation must have 'concepts' field."
     
-    assert len(annotation["id"]) == len(annotation["category"]) \
-           == len(annotation["bbox"]) == len(annotation["visibility"]) \
-           == len(annotation["concepts"]), \
-           "The length of 'id', 'category', 'bbox', 'visibility', and 'concepts' must be the same."
+    # Concepts field is optional for backward compatibility with datasets without concepts
+    has_concepts = "concepts" in annotation and annotation["concepts"] is not None
+    
+    # Check lengths match
+    base_len = len(annotation["id"])
+    assert base_len == len(annotation["category"]) == len(annotation["bbox"]) == len(annotation["visibility"]), \
+           "The length of 'id', 'category', 'bbox', 'visibility' must be the same."
+    
+    if has_concepts:
+        # For 2D concepts tensor, check first dimension matches
+        concepts_len = annotation["concepts"].shape[0] if annotation["concepts"].dim() > 0 else 0
+        assert base_len == concepts_len, \
+               f"The length of 'concepts' ({concepts_len}) must match other fields ({base_len})."
 
     # assert torch.unique(annotation["id"]).size(0) == annotation["id"].size(0), f"IDs must be unique."
     _id_unique = torch.unique(annotation["id"]).size(0) == annotation["id"].size(0)     # for PersonPath22
@@ -57,7 +65,7 @@ def append_annotation(
         category: int,
         bbox: list,
         visibility: float,
-        concepts: int,
+        concepts=None,  # Can be int (single concept) or list/tuple (multiple concepts), or None
 ):
     annotation["id"] = torch.cat([
         annotation["id"],
@@ -75,10 +83,22 @@ def append_annotation(
         annotation["visibility"],
         torch.tensor([visibility], dtype=torch.float32)
     ])
-    annotation["concepts"] = torch.cat([
-        annotation["concepts"],
-        torch.tensor([concepts], dtype=torch.int64) # Store as tensor
-    ])
+    
+    # Handle concepts if present
+    if concepts is not None and "concepts" in annotation:
+        # Handle both single concept (legacy) and multiple concepts
+        if isinstance(concepts, (list, tuple)):
+            # Multiple concepts: store as 2D tensor (N_objects, N_concepts)
+            concepts_tensor = torch.tensor([concepts], dtype=torch.int64)
+        else:
+            # Single concept (legacy): wrap in list for 2D shape
+            concepts_tensor = torch.tensor([[concepts]], dtype=torch.int64)
+        
+        # Concatenate along the first dimension (adding rows)
+        annotation["concepts"] = torch.cat([
+            annotation["concepts"],
+            concepts_tensor
+        ], dim=0)
     return annotation
 
 

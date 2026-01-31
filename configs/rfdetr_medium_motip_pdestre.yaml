@@ -1,0 +1,113 @@
+# RF-DETR Medium MOTIP Configuration for P-DESTRE
+# This configuration uses RF-DETR's DINOv2 backbone for improved detection
+# with concept prediction (gender, clothing) for person tracking
+
+SUPER_CONFIG_PATH: ./configs/r50_deformable_detr_motip_dancetrack.yaml
+
+# --- Override DETR Framework ---
+DETR_FRAMEWORK: rf_detr
+
+# --- Data Settings ---
+DATASETS: [P-DESTRE]
+DATASET_SPLITS: [train]
+INFERENCE_DATASET: PDESTRE
+INFERENCE_SPLIT: test
+
+# --- Sampling Settings (short sequences for faster training) ---
+SAMPLE_STEPS: [0, ]
+SAMPLE_LENGTHS: [5, ]  # Reduced from 5 for faster iteration during testing
+SAMPLE_INTERVALS: [4, ]
+
+# --- RF-DETR Specific Settings ---
+RFDETR:
+  # Model size: Medium (balanced speed/accuracy)
+  # Options: nano, small, medium, large
+  ENCODER: dinov2_windowed_small  # DINOv2-Small backbone
+  RESOLUTION: 588                  # Input resolution (must be divisible by 28 = patch_size * num_windows)
+  HIDDEN_DIM: 256                  # Hidden dimension
+  DEC_LAYERS: 4                    # Number of decoder layers
+  PATCH_SIZE: 14                   # ViT patch size (use 14 for DINOv2 pretrained weights)
+  NUM_WINDOWS: 2                   # Windowed attention
+  POSITIONAL_ENCODING_SIZE: 37    # Position encoding size (use 37 for DINOv2 compatibility)
+  OUT_FEATURE_INDEXES: [3, 6, 9, 12]  # Multi-scale feature indices
+  PROJECTOR_SCALE: [P4]            # Feature projection scales
+  
+  # Attention settings
+  SA_NHEADS: 8                     # Self-attention heads
+  CA_NHEADS: 16                    # Cross-attention heads
+  DEC_N_POINTS: 2                  # Deformable attention points
+  
+  # Architecture settings
+  TWO_STAGE: True                  # Two-stage detection
+  LITE_REFPOINT_REFINE: True       # Lightweight refinement
+  BBOX_REPARAM: True               # Box reparameterization
+  GROUP_DETR: 1                    # Groups (1 for stability in tracking)
+  IA_BCE_LOSS: True                # IoU-aware BCE loss
+  
+  # Backbone settings
+  LAYER_NORM: True
+  RMS_NORM: False
+  FREEZE_ENCODER: False            # Set True for faster fine-tuning
+  BACKBONE_LORA: False             # Enable for memory-efficient training
+  GRADIENT_CHECKPOINTING: False    # Enable for memory-limited GPUs
+  LOAD_DINOV2_WEIGHTS: False       # DISABLED for testing - skip weight download
+  
+  # Pretrained weights (will be downloaded automatically)
+  # Set to null for training from scratch
+  PRETRAIN_WEIGHTS: null  # DISABLED for testing
+
+# --- Model Settings ---
+NUM_CLASSES: 1                     # Person class only
+DETR_NUM_QUERIES: 300              # Number of object queries
+DETR_AUX_LOSS: True                # Auxiliary decoder losses
+
+# Note: These DETR settings are used for backward compatibility
+# RF-DETR uses its own settings from RFDETR section
+DETR_HIDDEN_DIM: 256               # Should match RFDETR.HIDDEN_DIM
+
+# --- MOTIP Concept Settings ---
+MOTIP:
+  # P-DESTRE Gender: 0 (Male), 1 (Female), 2 (Unknown)
+  N_CONCEPTS: 3
+  
+  # Losses to compute
+  DETR_LOSSES: [labels, boxes, cardinality, concepts]
+  
+  # Concept loss weight (0.5 is a good starting point)
+  CONCEPT_LOSS_COEF: 0.5
+  
+  # Multi-concept support (optional, for additional attributes)
+  # CONCEPT_CLASSES:
+  #   - [gender, 3, 2]        # 3 classes, unknown=2
+  #   - [upper_body, 13, 12]  # 13 classes, unknown=12
+
+# --- Training Strategies ---
+BATCH_SIZE: 2                      # Increase if GPU memory allows
+LR: 1.0e-4                         # Learning rate
+LR_BACKBONE_SCALE: 0.1             # Lower LR for backbone
+LR_WARMUP_EPOCHS: 1                # Warmup epochs
+WEIGHT_DECAY: 0.0005
+MAX_CLIP_NORM: 0.1
+
+# --- Override Training Settings ---
+# Disable DeformableDETR pretrain loading (RF-DETR uses its own weights)
+DETR_PRETRAIN: null
+
+# --- Evaluation Settings ---
+# These can be overridden during evaluation
+SUBMIT_MODEL: best                 # Use best checkpoint for submission
+SUBMIT_DATA_SPLIT: test
+
+# --- Sampling (for training efficiency) ---
+SAMPLE_STEPS: [0, ]
+SAMPLE_LENGTHS: [5, ]              # Shorter sequences for faster training
+SAMPLE_INTERVALS: [4, ]
+
+# --- Data Augmentation ---
+# RF-DETR uses square images, adjust augmentation accordingly
+# All dimensions must be divisible by 28 (patch_size=14 * num_windows=2)
+AUG_RESIZE_SCALES: [504, 532, 560, 588]  # All divisible by 28
+AUG_MAX_SIZE: 616                        # 616 = 22 * 28
+AUG_RANDOM_RESIZE: [476, 532, 588]       # All divisible by 28
+AUG_RANDOM_CROP_MIN: 392                 # 392 = 14 * 28
+AUG_RANDOM_CROP_MAX: 560                 # 560 = 20 * 28

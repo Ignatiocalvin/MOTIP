@@ -15,7 +15,7 @@ DATASETS: [P-DESTRE]
 DATASET_SPLITS: [train]
 # 2. sampling:
 SAMPLE_STEPS: [0, ]
-SAMPLE_LENGTHS: [20, ]
+SAMPLE_LENGTHS: [10, ]
 SAMPLE_INTERVALS: [4, ]
 LENGTH_PER_ITERATION:   # how many frames to process per iteration, the sample length should be divisible by this number
 
@@ -98,7 +98,7 @@ LR_DICTIONARY_SCALE: 1.0
 LR_WARMUP_EPOCHS: 1
 WEIGHT_DECAY: 0.0005
 MAX_CLIP_NORM: 0.1
-EPOCHS: 4
+EPOCHS: 1
 SCHEDULER_MILESTONES: [6, 9]
 SCHEDULER_GAMMA: 0.1
 DETR_NUM_TRAIN_FRAMES: 2
@@ -142,6 +142,10 @@ EXP_NAME: MOTIP
 GIT_VERSION:
 SAVE_CHECKPOINT_PER_EPOCH: 1
 MULTI_LAST_CHECKPOINTS: 0
+
+# Intra-epoch checkpointing (for long epochs):
+SAVE_CHECKPOINT_EVERY_N_STEPS: 0    # 0 = disabled. Set to e.g. 5000 to save every 5000 steps
+RESUME_FROM_STEP: 0                  # If resuming from mid-epoch checkpoint, set the step number
 
 # For previous version of MOTIP checkpoints:
 USE_PREVIOUS_CHECKPOINT: False

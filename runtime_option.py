@@ -110,4 +110,10 @@ def runtime_option():
 
     parser.add_argument("--use-previous-checkpoint", type=str)
 
+    # Intra-epoch checkpointing (for long epochs):
+    parser.add_argument("--save-checkpoint-every-n-steps", type=int, 
+                        help="Save checkpoint every N steps within an epoch. 0 = disabled.")
+    parser.add_argument("--resume-from-step", type=int, 
+                        help="Resume training from a mid-epoch checkpoint at this step.")
+
     return parser.parse_args()

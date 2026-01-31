@@ -40,7 +40,7 @@ def _get_clones(module, N):
 class DeformableDETR(nn.Module):
     """ This is the Deformable DETR module that performs object detection """
     def __init__(self, backbone, transformer, num_classes, num_concepts, num_queries, num_feature_levels,
-                 aux_loss=True, with_box_refine=False, two_stage=False):
+                 aux_loss=True, with_box_refine=False, two_stage=False, concept_classes=None):
         """ Initializes the model.
         Parameters:
             backbone: torch module of the backbone to be used. See backbone.py
@@ -51,14 +51,34 @@ class DeformableDETR(nn.Module):
             aux_loss: True if auxiliary decoding losses (loss at each decoder layer) are to be used.
             with_box_refine: iterative bounding box refinement
             two_stage: two-stage Deformable DETR
+            concept_classes: list of number of classes per concept (e.g., [3, 13] for gender and upper body clothing)
+                            If None, falls back to legacy single concept with num_concepts classes
         """
         super().__init__()
         self.num_queries = num_queries
         self.transformer = transformer
         hidden_dim = transformer.d_model
-        self.num_concepts = num_concepts # Number of concepts
-        if self.num_concepts > 0:
-            self.concept_embed = MLP(hidden_dim, hidden_dim, self.num_concepts, 3)
+        
+        # Multi-concept support
+        self.concept_classes = concept_classes  # e.g., [3, 13] for [gender, upper_body_clothing]
+        if concept_classes is not None and len(concept_classes) > 0:
+            self.num_concepts = len(concept_classes)  # Number of concept types
+            # Create separate prediction head for each concept
+            self.concept_embeds = nn.ModuleList([
+                MLP(hidden_dim, hidden_dim, n_classes, 3) for n_classes in concept_classes
+            ])
+        elif num_concepts > 0:
+            # Legacy single concept mode
+            self.num_concepts = 1
+            self.concept_classes = [num_concepts]
+            self.concept_embeds = nn.ModuleList([
+                MLP(hidden_dim, hidden_dim, num_concepts, 3)
+            ])
+        else:
+            self.num_concepts = 0
+            self.concept_classes = []
+            self.concept_embeds = None
+            
         self.class_embed = nn.Linear(hidden_dim, num_classes) 
         self.bbox_embed = MLP(hidden_dim, hidden_dim, 4, 3)
         self.num_feature_levels = num_feature_levels
@@ -102,25 +122,28 @@ class DeformableDETR(nn.Module):
             nn.init.xavier_uniform_(proj[0].weight, gain=1)
             nn.init.constant_(proj[0].bias, 0)
 
-        # 4. Initialize concept_embed head (Classification Prior Principle)
-        if self.num_concepts > 0:
+        # 4. Initialize concept_embed heads (Classification Prior Principle)
+        if self.num_concepts > 0 and self.concept_embeds is not None:
             # As a multi-label classification head, we follow the same
             # principle as the class_embed head: set a low prior probability
             # for each concept being "present" to ensure training stability.
-            nn.init.constant_(self.concept_embed.layers[-1].bias.data, bias_value)
-            # The weights (self.concept_embed.layers[-1].weight.data) are
-            # left to their default (Kaiming/Xavier) initialization,
+            for concept_embed in self.concept_embeds:
+                nn.init.constant_(concept_embed.layers[-1].bias.data, bias_value)
+            # The weights are left to their default (Kaiming/Xavier) initialization,
             # which is consistent with the class_embed head.
 
         # if two-stage, the last class_embed and bbox_embed is for region proposal generation
         num_pred = (transformer.decoder.num_layers + 1) if two_stage else transformer.decoder.num_layers
         if with_box_refine:
             # A critical and non-obvious step is to ensure the new concept_embed head is correctly handled by the logic 
-            # for auxiliary decoder losses. The DeformableDETR clones or repeats its prediction heads for each decoder layer. This logic must be extended to include self.concept_embed.
+            # for auxiliary decoder losses. The DeformableDETR clones or repeats its prediction heads for each decoder layer. This logic must be extended to include self.concept_embeds.
             self.class_embed = _get_clones(self.class_embed, num_pred)
             self.bbox_embed = _get_clones(self.bbox_embed, num_pred)
-            if self.num_concepts > 0:
-                self.concept_embed = _get_clones(self.concept_embed, num_pred)
+            if self.num_concepts > 0 and self.concept_embeds is not None:
+                # Clone each concept embed head for each decoder layer
+                self.concept_embeds = nn.ModuleList([
+                    _get_clones(concept_embed, num_pred) for concept_embed in self.concept_embeds
+                ])
             nn.init.constant_(self.bbox_embed[0].layers[-1].bias.data[2:], -2.0)
             # hack implementation for iterative bounding box refinement
             self.transformer.decoder.bbox_embed = self.bbox_embed
@@ -128,8 +151,12 @@ class DeformableDETR(nn.Module):
             nn.init.constant_(self.bbox_embed.layers[-1].bias.data[2:], -2.0)
             self.class_embed = nn.ModuleList([self.class_embed for _ in range(num_pred)])
             self.bbox_embed = nn.ModuleList([self.bbox_embed for _ in range(num_pred)])
-            if self.num_concepts > 0:
-                self.concept_embed = nn.ModuleList([self.concept_embed for _ in range(num_pred)])
+            if self.num_concepts > 0 and self.concept_embeds is not None:
+                # Create ModuleList for each concept embed across decoder layers
+                self.concept_embeds = nn.ModuleList([
+                    nn.ModuleList([concept_embed for _ in range(num_pred)]) 
+                    for concept_embed in self.concept_embeds
+                ])
             self.transformer.decoder.bbox_embed = None
         if two_stage:
             # hack implementation for two-stage
@@ -184,7 +211,12 @@ class DeformableDETR(nn.Module):
 
         outputs_classes = []
         outputs_coords = []
-        outputs_concepts = []
+        outputs_concepts = []  # Will be list of lists: [concept_idx][layer_idx]
+        
+        # Initialize outputs_concepts for each concept type
+        if self.num_concepts > 0 and self.concept_embeds is not None:
+            outputs_concepts = [[] for _ in range(self.num_concepts)]
+        
         for lvl in range(hs.shape[0]):
             if lvl == 0:
                 reference = init_reference
@@ -201,22 +233,31 @@ class DeformableDETR(nn.Module):
             outputs_coord = tmp.sigmoid()
             outputs_classes.append(outputs_class)
             outputs_coords.append(outputs_coord)
-            if self.num_concepts > 0:
-                outputs_concepts.append(self.concept_embed[lvl](hs[lvl])) # Apply the corresponding concept head to the hidden state of this layer
-                                                                        # We output logits, as nn.BCEWithLogitsLoss is preferred for multi-label concepts
+            
+            # Multi-concept prediction: apply each concept head separately
+            if self.num_concepts > 0 and self.concept_embeds is not None:
+                for concept_idx in range(self.num_concepts):
+                    concept_logits = self.concept_embeds[concept_idx][lvl](hs[lvl])
+                    outputs_concepts[concept_idx].append(concept_logits)
+                    
         outputs_class = torch.stack(outputs_classes)
         outputs_coord = torch.stack(outputs_coords)
-        if self.num_concepts > 0:
-            outputs_concept = torch.stack(outputs_concepts)
+        
+        # Stack concept outputs: list of (num_layers, B, N_queries, n_classes_per_concept)
+        if self.num_concepts > 0 and self.concept_embeds is not None:
+            outputs_concepts_stacked = [torch.stack(concept_outputs) for concept_outputs in outputs_concepts]
 
         # The newly generated outputs_concept tensor must be added to the output dictionaries returned by the forward method.
         out = {'pred_logits': outputs_class[-1], 'pred_boxes': outputs_coord[-1]}
-        if self.num_concepts > 0:
-            out['pred_concepts'] = outputs_concept[-1]
+        if self.num_concepts > 0 and self.concept_embeds is not None:
+            # Store each concept's predictions separately
+            out['pred_concepts'] = [concept_stack[-1] for concept_stack in outputs_concepts_stacked]
+            # Also store combined for backward compatibility (first concept only)
+            # out['pred_concepts_legacy'] = outputs_concepts_stacked[0][-1]
 
         if self.aux_loss:
-            if self.num_concepts > 0:
-                out['aux_outputs'] = self._set_aux_loss(outputs_class, outputs_coord, outputs_concept)
+            if self.num_concepts > 0 and self.concept_embeds is not None:
+                out['aux_outputs'] = self._set_aux_loss_multi_concept(outputs_class, outputs_coord, outputs_concepts_stacked)
             else:
                 out['aux_outputs'] = self._set_aux_loss(outputs_class, outputs_coord)
 
@@ -242,6 +283,25 @@ class DeformableDETR(nn.Module):
             return [{'pred_logits': a, 'pred_boxes': b}
                     for a, b in zip(outputs_class[:-1], outputs_coord[:-1])]
 
+    @torch.jit.unused
+    def _set_aux_loss_multi_concept(self, outputs_class, outputs_coord, outputs_concepts_stacked):
+        """Handle multiple concept outputs for auxiliary losses.
+        
+        Args:
+            outputs_class: (num_layers, B, N_queries, num_classes)
+            outputs_coord: (num_layers, B, N_queries, 4)
+            outputs_concepts_stacked: list of (num_layers, B, N_queries, n_classes_per_concept) for each concept
+        """
+        aux_outputs = []
+        for lvl in range(outputs_class.shape[0] - 1):
+            aux_out = {
+                'pred_logits': outputs_class[lvl],
+                'pred_boxes': outputs_coord[lvl],
+                'pred_concepts': [concept_stack[lvl] for concept_stack in outputs_concepts_stacked]
+            }
+            aux_outputs.append(aux_out)
+        return aux_outputs
+
 
 class SetCriterion(nn.Module):
     """ This class computes the loss for DETR.
@@ -249,7 +309,7 @@ class SetCriterion(nn.Module):
         1) we compute hungarian assignment between ground truth boxes and the outputs of the model
         2) we supervise each pair of matched ground-truth / prediction (supervise class and box)
     """
-    def __init__(self, num_classes, matcher, weight_dict, losses, focal_alpha=0.25, num_concepts=0):
+    def __init__(self, num_classes, matcher, weight_dict, losses, focal_alpha=0.25, num_concepts=0, concept_classes=None):
         """ Create the criterion.
         Parameters:
             num_classes: number of object categories, omitting the special no-object category
@@ -257,6 +317,9 @@ class SetCriterion(nn.Module):
             weight_dict: dict containing as key the names of the losses and as values their relative weight.
             losses: list of all the losses to be applied. See get_loss for list of available losses.
             focal_alpha: alpha in Focal Loss
+            num_concepts: legacy - number of concept classes (for single concept)
+            concept_classes: list of (name, num_classes, unknown_label) for each concept
+                            e.g., [("gender", 3, 2), ("upper_body", 13, 12)]
         """
         super().__init__()
         self.num_classes = num_classes
@@ -264,7 +327,21 @@ class SetCriterion(nn.Module):
         self.weight_dict = weight_dict
         self.losses = losses
         self.focal_alpha = focal_alpha
-        self.num_concepts = num_concepts
+        
+        # Multi-concept support
+        if concept_classes is not None and len(concept_classes) > 0:
+            self.concept_classes = concept_classes
+            self.num_concepts = len(concept_classes)
+        elif num_concepts > 0:
+            # Legacy single concept mode (gender only)
+            self.concept_classes = [("gender", num_concepts, 2)]  # Unknown label is 2
+            self.num_concepts = 1
+        else:
+            self.concept_classes = []
+            self.num_concepts = 0
+        
+        # Concept names for logging
+        self.concept_names = [c[0] for c in self.concept_classes] if self.concept_classes else []
 
     def loss_labels(self, outputs, targets, indices, num_boxes, log=True):
         """Classification loss (NLL)
@@ -328,51 +405,89 @@ class SetCriterion(nn.Module):
         return losses
 
     def loss_concepts(self, outputs, targets, indices, num_boxes, **kwargs):
-        """Classification loss for concepts (e.g., gender).
-        We compute the cross-entropy loss over the matched queries.
+        """Classification loss for multiple concepts (e.g., gender, upper body clothing).
+        We compute the cross-entropy loss over the matched queries for each concept.
+        
+        Now supports multiple concepts where:
+        - outputs['pred_concepts'] is a list of tensors, one per concept
+        - targets['concepts'] is a 2D tensor of shape (N_objects, N_concepts)
         """
         assert 'pred_concepts' in outputs
-        src_logits = outputs['pred_concepts'] # (B, N_queries, num_concepts)
-
+        pred_concepts_list = outputs['pred_concepts']  # List of (B, N_queries, n_classes_per_concept)
+        
+        # Handle legacy single concept case (when pred_concepts is a single tensor)
+        if not isinstance(pred_concepts_list, list):
+            pred_concepts_list = [pred_concepts_list]
+        
         idx = self._get_src_permutation_idx(indices)
-        target_classes_o = torch.cat([t["concepts"][J] for t, (_, J) in zip(targets, indices)])
-        target_classes = torch.full(src_logits.shape[:2], 0,
-                                    dtype=torch.int64, device=src_logits.device)
-        target_classes[idx] = target_classes_o
-
-        # P-DESTRE's gender attribute '2' means 'Unknown'.
-        # We must ignore these labels during training.
-        # Create a mask for valid (non-unknown) concept labels.
-        # We only compute loss for matched queries (idx) that have a valid label.
         
-        # Get matched source logits
-        src_logits_matched = src_logits[idx]
+        # Get target concepts - now a 2D tensor (N_matched, N_concepts)
+        target_concepts_all = torch.cat([t["concepts"][J] for t, (_, J) in zip(targets, indices)])
         
-        # Create mask for valid targets (where target!= 2)
-        valid_mask = (target_classes_o!= 2)
+        # Handle legacy 1D tensor case
+        if target_concepts_all.dim() == 1:
+            target_concepts_all = target_concepts_all.unsqueeze(1)
         
-        if valid_mask.sum() == 0:
-            # Handle case where all targets in batch are 'Unknown'
-            losses = {'loss_concepts': torch.tensor(0.0, device=src_logits.device)}
-            return losses
-
-        # Apply mask to both logits and targets
-        src_logits_valid = src_logits_matched[valid_mask]
-        target_classes_valid = target_classes_o[valid_mask]
-
-        # Get predictions for logging
-        pred_concepts = torch.argmax(src_logits_valid, dim=-1)
-        
-        # Calculate accuracy for logging
-        correct_predictions = (pred_concepts == target_classes_valid).float()
-        concept_accuracy = correct_predictions.mean() * 100.0
-
-        # Compute cross-entropy loss only on valid, matched predictions
-        loss_concepts = F.cross_entropy(src_logits_valid, target_classes_valid, reduction='none')
-
         losses = {}
-        losses['loss_concepts'] = loss_concepts.sum() / num_boxes
-        losses['concept_accuracy'] = concept_accuracy
+        total_loss = torch.tensor(0.0, device=pred_concepts_list[0].device)
+        
+        # Process each concept separately
+        for concept_idx, (concept_name, n_classes, unknown_label) in enumerate(self.concept_classes):
+            if concept_idx >= len(pred_concepts_list):
+                continue
+                
+            src_logits = pred_concepts_list[concept_idx]  # (B, N_queries, n_classes)
+            src_logits_matched = src_logits[idx]
+            
+            # Get targets for this concept
+            if concept_idx < target_concepts_all.shape[1]:
+                target_classes_o = target_concepts_all[:, concept_idx]
+            else:
+                # Fallback for missing concept data
+                continue
+            
+            # Create mask for valid targets (exclude unknown label)
+            valid_mask = (target_classes_o != unknown_label)
+            
+            if valid_mask.sum() == 0:
+                # All targets are 'Unknown' for this concept
+                losses[f'loss_{concept_name}'] = torch.tensor(0.0, device=src_logits.device)
+                losses[f'{concept_name}_accuracy'] = torch.tensor(0.0, device=src_logits.device)
+                continue
+            
+            # Apply mask to both logits and targets
+            src_logits_valid = src_logits_matched[valid_mask]
+            target_classes_valid = target_classes_o[valid_mask]
+            
+            # Get predictions for logging
+            pred_concepts = torch.argmax(src_logits_valid, dim=-1)
+            
+            # Calculate accuracy for logging
+            correct_predictions = (pred_concepts == target_classes_valid).float()
+            concept_accuracy = correct_predictions.mean() * 100.0
+            
+            # Store detailed predictions for periodic logging
+            losses[f'{concept_name}_predictions'] = pred_concepts.detach().cpu()
+            losses[f'{concept_name}_targets'] = target_classes_valid.detach().cpu()
+            
+            # Compute cross-entropy loss only on valid, matched predictions
+            loss_concept = F.cross_entropy(src_logits_valid, target_classes_valid, reduction='none')
+            loss_concept_sum = loss_concept.sum() / num_boxes
+            
+            losses[f'loss_{concept_name}'] = loss_concept_sum
+            losses[f'{concept_name}_accuracy'] = concept_accuracy
+            total_loss = total_loss + loss_concept_sum
+        
+        # Combined concept loss for backward compatibility
+        losses['loss_concepts'] = total_loss
+        # Average accuracy across all concepts for summary
+        accuracies = [losses[f'{name}_accuracy'] for name, _, _ in self.concept_classes 
+                      if f'{name}_accuracy' in losses and losses[f'{name}_accuracy'] > 0]
+        if accuracies:
+            losses['concept_accuracy'] = sum(accuracies) / len(accuracies)
+        else:
+            losses['concept_accuracy'] = torch.tensor(0.0, device=pred_concepts_list[0].device)
+            
         return losses
     
     def loss_masks(self, outputs, targets, indices, num_boxes):
@@ -479,7 +594,9 @@ class SetCriterion(nn.Module):
         return total_concepts > 0 or total_ids > 0
 
     def log_concept_predictions(self, outputs, targets, indices, num_samples=3):
-        """Enhanced logging with both concept and ID predictions vs ground truth."""
+        """Enhanced logging with both concept and ID predictions vs ground truth.
+        Now supports multiple concepts.
+        """
         if 'pred_concepts' not in outputs or self.num_concepts == 0:
             return
         
@@ -488,13 +605,22 @@ class SetCriterion(nn.Module):
         if not has_valid_targets:
             print("[Concepts] No concept/ID targets found - DEBUG CONFIRMED", flush=True)
             return
-            
-        concept_labels = ['Male', 'Female', 'Unknown']
+        
+        # Concept labels for each concept type
+        concept_labels_map = {
+            'gender': ['Male', 'Female', 'Unknown'],
+            'upper_body': ['T-Shirt', 'Blouse', 'Sweater', 'Coat', 'Bikini', 'Naked', 
+                          'Dress', 'Uniform', 'Shirt', 'Suit', 'Hoodie', 'Cardigan', 'Unknown']
+        }
         
         # Get predictions and targets
         src_logits = outputs['pred_logits']  # For ID predictions
-        src_concept_logits = outputs['pred_concepts']  # For concept predictions
+        src_concept_logits = outputs['pred_concepts']  # List of concept predictions
         idx = self._get_src_permutation_idx(indices)
+        
+        # Handle both list and single tensor format
+        if not isinstance(src_concept_logits, list):
+            src_concept_logits = [src_concept_logits]
         
         # Check if we have any targets with concepts
         try:
@@ -504,89 +630,48 @@ class SetCriterion(nn.Module):
             print("[Concepts] No concept/ID targets found", flush=True)
             return
         
-        # Get matched predictions
-        pred_concept_logits = src_concept_logits[idx]
-        pred_concepts = torch.argmax(pred_concept_logits, dim=-1)
+        # Handle 1D vs 2D target concepts
+        if target_concepts.dim() == 1:
+            target_concepts = target_concepts.unsqueeze(1)
         
-        # Get ID predictions (assuming class predictions represent object instances/IDs)
+        total_targets = target_concepts.shape[0]
+        
+        # Log each concept's accuracy
+        for concept_idx, (concept_name, n_classes, unknown_label) in enumerate(self.concept_classes):
+            if concept_idx >= len(src_concept_logits) or concept_idx >= target_concepts.shape[1]:
+                continue
+                
+            concept_logits = src_concept_logits[concept_idx][idx]
+            pred_concepts = torch.argmax(concept_logits, dim=-1)
+            tgt_concepts = target_concepts[:, concept_idx]
+            
+            # Filter out unknown labels
+            valid_mask = (tgt_concepts != unknown_label)
+            
+            if valid_mask.sum() == 0:
+                print(f"[{concept_name}] Targets: {total_targets} (all Unknown)", flush=True)
+                continue
+            
+            pred_valid = pred_concepts[valid_mask]
+            tgt_valid = tgt_concepts[valid_mask]
+            
+            correct = (pred_valid == tgt_valid).sum().item()
+            accuracy = correct / len(pred_valid) * 100 if len(pred_valid) > 0 else 0
+            unknown_count = (~valid_mask).sum().item()
+            
+            print(f"[{concept_name}] Accuracy: {accuracy:.1f}% ({unknown_count} Unknown, {len(pred_valid)} valid)", flush=True)
+        
+        # ID Statistics (unchanged)
         pred_id_logits = src_logits[idx]
         pred_ids = torch.argmax(pred_id_logits, dim=-1)
-        
-        # Count all targets (including Unknown concepts)
-        total_targets = len(target_concepts)
-        unknown_count = (target_concepts == 2).sum().item()
-        
-        # Filter out Unknown labels (=2) for concept accuracy calculation
-        valid_concept_mask = (target_concepts != 2)
-        
-        # Concept Statistics
-        if valid_concept_mask.sum() == 0:
-            print(f"[Concepts] Targets: {total_targets} (all Unknown) - skipping concept accuracy", flush=True)
-            concept_accuracy = 0
-            pred_male = pred_female = gt_male = gt_female = 0
-        else:
-            # Apply filter for concepts
-            pred_concepts_valid = pred_concepts[valid_concept_mask]
-            target_concepts_valid = target_concepts[valid_concept_mask]
-            
-            # Calculate concept accuracy
-            correct_concepts = (pred_concepts_valid == target_concepts_valid).sum().item()
-            valid_concept_count = len(pred_concepts_valid)
-            concept_accuracy = correct_concepts / valid_concept_count * 100 if valid_concept_count > 0 else 0
-            
-            # Count concept predictions and ground truth
-            pred_male = (pred_concepts_valid == 0).sum().item()
-            pred_female = (pred_concepts_valid == 1).sum().item()
-            gt_male = (target_concepts_valid == 0).sum().item()
-            gt_female = (target_concepts_valid == 1).sum().item()
-        
-        # ID Statistics
         correct_ids = (pred_ids == target_ids).sum().item()
         total_ids = len(pred_ids)
         id_accuracy = correct_ids / total_ids * 100 if total_ids > 0 else 0
-        
-        # Count unique IDs
         unique_pred_ids = len(torch.unique(pred_ids))
         unique_gt_ids = len(torch.unique(target_ids))
         
-        # Comprehensive output
-        print(f"\n[Tracking] Targets: {total_targets} objects", flush=True)
-        print(f"[Concepts] Accuracy: {concept_accuracy:.1f}% ({unknown_count} Unknown, {total_targets - unknown_count} valid)", flush=True)
-        print(f"[Concepts] Preds: {pred_male}M {pred_female}F | GT: {gt_male}M {gt_female}F", flush=True)
         print(f"[IDs] Accuracy: {id_accuracy:.1f}% ({correct_ids}/{total_ids})", flush=True)
         print(f"[IDs] Unique: Pred={unique_pred_ids}, GT={unique_gt_ids}", flush=True)
-        
-        # Show detailed examples
-        num_show = min(num_samples, total_targets)
-        if num_show > 0:
-            examples = []
-            for i in range(num_show):
-                # Concept info
-                if i < len(target_concepts):
-                    concept_idx = target_concepts[i].item()
-                    if concept_idx == 2:  # Unknown
-                        concept_match = "?"
-                        concept_info = "U"
-                    else:
-                        pred_concept_idx = pred_concepts[i].item()
-                        p_label = concept_labels[pred_concept_idx][:1]  # Just M/F
-                        t_label = concept_labels[concept_idx][:1]  # Just M/F
-                        concept_match = "✓" if pred_concept_idx == concept_idx else "✗"
-                        concept_info = f"{p_label}→{t_label}"
-                else:
-                    concept_match = "?"
-                    concept_info = "?"
-                
-                # ID info
-                pred_id = pred_ids[i].item()
-                gt_id = target_ids[i].item()
-                id_match = "✓" if pred_id == gt_id else "✗"
-                id_info = f"{pred_id}→{gt_id}"
-                
-                examples.append(f"[{concept_match}{concept_info}|{id_match}{id_info}]")
-            
-            print(f"[Examples] {' '.join(examples)}", flush=True)
-            print(f"[Legend] [Concept_match Pred→GT | ID_match Pred→GT]", flush=True)
 
     def get_loss(self, loss, outputs, targets, indices, num_boxes, **kwargs):
         assert "batch_len" in kwargs, f"batch_len is not in kwargs"
@@ -612,6 +697,13 @@ class SetCriterion(nn.Module):
             batch_outputs = tensor_dict_index_select(outputs, batch_iter_idxs, dim=0)
             batch_loss_dict = loss_map[loss](batch_outputs, batch_targets, batch_indices, 1, **kwargs)  # num_boxes=1
             for k, v in batch_loss_dict.items():
+                # Skip non-scalar tensors (predictions/targets stored for logging)
+                # These have variable sizes per batch and cannot be added together
+                if '_predictions' in k or '_targets' in k:
+                    continue
+                # Also skip any tensor that is not a scalar (dim > 0 means it has a shape)
+                if isinstance(v, torch.Tensor) and v.dim() > 0:
+                    continue
                 if k not in loss_dict:
                     loss_dict[k] = v
                 else:
@@ -771,6 +863,11 @@ def build(args):
     #     num_classes = 250
     num_classes = args.num_classes
     num_concepts = getattr(args, 'num_concepts', 0)
+    
+    # Multi-concept support: concept_classes is a list of (name, num_classes, unknown_label)
+    # e.g., [("gender", 3, 2), ("upper_body", 13, 12)]
+    concept_classes = getattr(args, 'concept_classes', None)
+    
     device = torch.device(args.device)
 
     backbone = build_backbone(args)
@@ -785,7 +882,8 @@ def build(args):
         aux_loss=args.aux_loss,
         with_box_refine=args.with_box_refine,
         two_stage=args.two_stage,
-        num_concepts=num_concepts
+        num_concepts=num_concepts,
+        concept_classes=[c[1] for c in concept_classes] if concept_classes else None  # Pass just the class counts to model
     )
     if args.masks:
         model = DETRsegm(model, freeze_detr=(args.frozen_weights is not None))
@@ -802,6 +900,10 @@ def build(args):
 
     if concept_loss_coef > 0:
         weight_dict['loss_concepts'] = concept_loss_coef
+        # Add per-concept loss weights if using multi-concept
+        if concept_classes:
+            for concept_name, _, _ in concept_classes:
+                weight_dict[f'loss_{concept_name}'] = concept_loss_coef
 
     # TODO this is a hack
     if args.aux_loss:
@@ -818,8 +920,13 @@ def build(args):
     # If not provided, default to original behavior
     losses = getattr(args, 'losses', ['labels', 'boxes', 'cardinality'])
 
-    # num_classes, matcher, weight_dict, losses, focal_alpha=0.25, num_concepts=0
-    criterion = SetCriterion(num_classes, matcher, weight_dict, losses, focal_alpha=args.focal_alpha, num_concepts=num_concepts)
+    # num_classes, matcher, weight_dict, losses, focal_alpha=0.25, num_concepts=0, concept_classes=None
+    criterion = SetCriterion(
+        num_classes, matcher, weight_dict, losses, 
+        focal_alpha=args.focal_alpha, 
+        num_concepts=num_concepts,
+        concept_classes=concept_classes
+    )
     criterion.to(device)
     postprocessors = {'bbox': PostProcess()}
     if args.masks:
