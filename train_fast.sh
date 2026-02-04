@@ -1,16 +1,16 @@
 #!/usr/bin/env bash
-#SBATCH --job-name=motip_fast
+#SBATCH --job-name=motip_fixed_fold_3
 #SBATCH --partition=gpu_h100
 #SBATCH --gres=gpu:1
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=8
-#SBATCH --time=32:00:00
+#SBATCH --time=72:00:00
 #SBATCH --mem=16G
-#SBATCH --output=logs/test_motip_fast_fold_3_%j.out
-#SBATCH --error=logs/test_motip_fast_fold_3_%j.err
+#SBATCH --output=logs/motip_fixed_fold_3_%j.out
+#SBATCH --error=logs/motip_fixed_fold_3_%j.err
 
 echo "=========================================="
-echo "MOTIP Fast Training Script"
+echo "MOTIP Fixed Training Script - Fold 3"
 echo "Started at $(date)"
 echo "Node: $(hostname)"
 echo "=========================================="
@@ -63,22 +63,21 @@ fi
 #      --data-root ./data/ \
 #      --exp-name r50_motip_pdestre_fast \
 #      --config-path ./configs/r50_deformable_detr_motip_pdestre_fast.yaml \
-#      --resume-model ./outputs/r50_motip_pdestre_fast/intra_epoch_checkpoints/epoch_0_step_${RESUME_STEP}.pth \
+#      --resume-model ./outputs/r50_motip_pdestre_fast/intra_epoch_checkpoints/epoch_3_step_${RESUME_STEP}.pth \
 #      --resume-from-step ${RESUME_STEP}
 
 # ========================================
 # Run fast training (fresh start)
 # ========================================
-echo "Starting FAST training with optimized config..."
-echo "Expected time per epoch: ~24 hours (down from ~80 hours)"
+echo "Starting training with FIXED bbox format and 7 concepts..."
+echo "Training fold 3 from scratch with corrected annotations"
+echo "Expected: 30 epochs, ~24 hours per epoch"
 echo "Intra-epoch checkpoints saved every 5000 steps"
-echo "Resuming from checkpoint_3.pth (after epoch 1)"
 
 accelerate launch --num_processes=1 train.py \
     --data-root ./data/ \
-    --exp-name test_r50_motip_pdestre_fold_3 \
-    --config-path ./configs/r50_deformable_detr_motip_pdestre_fast.yaml \
-    --resume-model ./outputs/r50_motip_pdestre_fold_3/checkpoint_1.pth
+    --exp-name r50_motip_pdestre_fixed_fold_3 \
+    --config-path ./configs/r50_deformable_detr_motip_pdestre_fast.yaml
 
 echo "Finished at $(date)"
 # Testing with Deformable DETR + MOTIP fast model

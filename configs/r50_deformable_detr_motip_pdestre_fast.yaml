@@ -6,43 +6,46 @@ SUPER_CONFIG_PATH: ./configs/r50_deformable_detr_motip_dancetrack.yaml
 
 # --- Override Data Settings ---
 DATASETS: [P-DESTRE]
-squDATASET_SPLITS: [Train_3]
+DATASET_SPLITS: [Train_3]
 INFERENCE_DATASET: P-DESTRE
 INFERENCE_SPLIT: val_3
 
-# --- CRITICAL: Sample settings to reduce iterations ---
-# Original: SAMPLE_INTERVALS: [4] -> ~97,000 iterations
-# Optimized: SAMPLE_INTERVALS: [15] -> ~26,000 iterations (3.7x faster)
+# --- CRITICAL: Sample settings to control training data density ---
+# Original: SAMPLE_INTERVALS: [4] -> ~97,000 iterations per epoch
+# Fast option: SAMPLE_INTERVALS: [15] -> ~26,000 iterations (3.7x faster but less data)
+# Current: Using [4] for thorough learning with corrected bbox format
 SAMPLE_STEPS: [0, ]
 SAMPLE_LENGTHS: [15, ]
-SAMPLE_INTERVALS: [4, ]  # Increased from 4 to 15 - this is the key speedup!
+SAMPLE_INTERVALS: [4, ]  # Every 4th frame - good balance of speed and learning
 
 # --- Model & Loss Settings (MOTIP with Multiple Concepts) ---
 MOTIP:
-  N_CONCEPTS: 2  # Number of concept types (gender, upper_body_clothing)
+  N_CONCEPTS: 7  # Number of concept types
   # CONCEPT_CLASSES: list of [name, num_classes, unknown_label_index]
-  # - Gender: 0=Male, 1=Female, 2=Unknown
-  # - Upper Body Clothing: 0=T-Shirt, 1=Blouse, 2=Sweater, 3=Coat, 4=Bikini, 
-  #                        5=Naked, 6=Dress, 7=Uniform, 8=Shirt, 9=Suit, 
-  #                        10=Hoodie, 11=Cardigan, 12=Unknown
+  # Column positions: gender=10, hairstyle=16, head_accessories=20, upper_body=21, lower_body=22, feet=23, accessories=24
   CONCEPT_CLASSES:
-    - ["gender", 3, 2]           # name, num_classes, unknown_label
-    - ["upper_body", 13, 12]     # name, num_classes, unknown_label
+    - ["gender", 3, 2]           # 0=Male, 1=Female, 2=Unknown
+    - ["hairstyle", 6, 5]        # 0=Bald, 1=Short, 2=Medium, 3=Long, 4=Horse Tail, 5=Unknown
+    - ["head_accessories", 5, 4] # 0=Hat, 1=Scarf, 2=Neckless, 3=Cannot see, 4=Unknown
+    - ["upper_body", 13, 12]     # 0=T-Shirt, 1=Blouse, 2=Sweater, 3=Coat, 4=Bikini, 5=Naked, 6=Dress, 7=Uniform, 8=Shirt, 9=Suit, 10=Hoodie, 11=Cardigan, 12=Unknown
+    - ["lower_body", 10, 9]      # 0=Jeans, 1=Leggins, 2=Pants, 3=Shorts, 4=Skirt, 5=Bikini, 6=Dress, 7=Uniform, 8=Suit, 9=Unknown
+    - ["feet", 7, 6]             # 0=Sport Shoe, 1=Classic Shoe, 2=High Heels, 3=Boots, 4=Sandal, 5=Nothing, 6=Unknown
+    - ["accessories", 8, 7]      # 0=Bag, 1=Backpack Bag, 2=Rolling Bag, 3=Umbrella, 4=Sport Bag, 5=Market Bag, 6=Nothing, 7=Unknown
   DETR_LOSSES: [labels, boxes, cardinality, concepts]
   CONCEPT_LOSS_COEF: 0.5
 
 # --- Training optimizations ---
-EPOCHS: 3
+EPOCHS: 30  # Increased from 3 - detection models need more training
 NUM_WORKERS: 5              # Increased from 2 for better data loading
 PREFETCH_FACTOR: 4          # Increased prefetch
 
 # --- Intra-epoch checkpointing (CRITICAL for long jobs) ---
-# Saves checkpoint every 5000 steps (~5 hours of work)
+# Saves checkpoint every 5000 steps (~15 hours of work)
 # Allows resuming if job times out at 72 hours
 SAVE_CHECKPOINT_EVERY_N_STEPS: 5000
 RESUME_FROM_STEP: 0         # Set this to resume from a mid-epoch checkpoint
 
 # --- Outputs ---
-EXP_NAME: r50_deformable_detr_motip_pdestre_fast
+EXP_NAME: r50_motip_pdestre_fixed_fold_3  # New folder name for corrected bbox format
 SAVE_CHECKPOINT_PER_EPOCH: 1
 MULTI_LAST_CHECKPOINTS: 4   # Save 4 checkpoints during last epoch

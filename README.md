@@ -48,6 +48,7 @@
 - See [DATASET.md](./docs/DATASET.md) for datasets download and preparation.
 - See [GET_STARTED.md](./docs/GET_STARTED.md) for how to get started with our MOTIP, including pre-training, training, and inference.
 - See [MODEL_ZOO.md](./docs/MODEL_ZOO.md) for well-trained models.
+- See [evaluation/](./evaluation/) for visualizing training results :bar_chart:.
 - See [MISCELLANEOUS.md](./docs/MISCELLANEOUS.md) for other miscellaneous settings unrelated to the model structure, such as logging.
 - See [TUTORIAL.md](./docs/TUTORIAL.md) to understand and better develop our models.
 
