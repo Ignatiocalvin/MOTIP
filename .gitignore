@@ -1,7 +1,7 @@
 # Data directories (but keep outputs/)
-data/
+data/P-DESTRE/
 datasets/
-**/data/
+**/data/P-DESTRE/
 **/datasets/
 .venv/
 MOTIP/.venv/
