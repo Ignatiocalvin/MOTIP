@@ -1,8 +1,8 @@
 # Data directories (but keep outputs/)
-data/P-DESTRE/
-datasets/
-**/data/P-DESTRE/
-**/datasets/
+data/P-DESTRE/annotations/
+data/P-DESTRE/images/
+data/P-DESTRE/videos/
+**/data/P-DESTRE/annotations/
 .venv/
 MOTIP/.venv/
 logs/
