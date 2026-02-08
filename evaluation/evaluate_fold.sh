@@ -30,9 +30,12 @@ python -c "import torch; print(torch.cuda.is_available())"
 # Activate environment
 source ~/miniconda3/bin/activate MOTIP
 
+# Change to MOTIP root directory
+cd "${SLURM_SUBMIT_DIR:-$(dirname "$(dirname "$0")")}"
+
 # Run evaluation
 echo "Starting evaluation for fold_${FOLD}..."
-python submit_and_evaluate.py \
+python evaluation/submit_and_evaluate.py \
     --config-path configs/r50_deformable_detr_motip_pdestre_fast.yaml \
     --inference-model outputs/r50_motip_pdestre_fold_${FOLD}/checkpoint_2.pth \
     --inference-group fold_${FOLD} \

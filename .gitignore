@@ -2,9 +2,8 @@
 data/P-DESTRE/annotations/
 data/P-DESTRE/images/
 data/P-DESTRE/videos/
-**/data/P-DESTRE/annotations/
+outputs_slim/
 .venv/
-MOTIP/.venv/
 logs/
 outputs/
 

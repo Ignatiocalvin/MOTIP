@@ -4,7 +4,16 @@
 
 set -e  # Exit on any error
 
-echo "Starting P-DESTRE dataset download and preprocessing..."
+# Get the MOTIP root directory (parent of scripts/)
+MOTIP_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && cd .. && pwd)"
+cd "${MOTIP_ROOT}"
+
+echo "========================================"
+echo "P-DESTRE Dataset Setup"
+echo "========================================"
+echo ""
+echo "Working directory: ${MOTIP_ROOT}"
+echo ""
 
 # Create data directory if it doesn't exist
 mkdir -p data
@@ -69,38 +78,47 @@ else
     echo "Warning: videos/13-11-2019-4-3.MP4 not found"
 fi
 
-# Copy the preprocessing script to the current directory if it doesn't exist
-PREPROCESS_SCRIPT="../../preprocess_pdestre.py"
-if [ ! -f "preprocess_pdestre.py" ] && [ -f "$PREPROCESS_SCRIPT" ]; then
-    cp "$PREPROCESS_SCRIPT" .
-    echo "Copied preprocessing script to P-DESTRE directory"
+# Run the preprocessing script from data/P-DESTRE/
+echo ""
+echo "Extracting frames from videos..."
+if [ -f "preprocess_each.py" ]; then
+    python preprocess_each.py
+else
+    echo "Warning: preprocess_each.py not found in data/P-DESTRE/"
+    echo "Skipping frame extraction. You may need to run it manually."
 fi
 
-# Run the preprocessing script
-echo "Running preprocessing script..."
-python preprocess_pdestre.py
-
-# Move splits folder if it exists outside
-if [ -d "../splits" ]; then
-    mv ../splits .
-    echo "Moved splits folder into P-DESTRE directory"
-elif [ -d "../../splits" ]; then
-    mv ../../splits .
-    echo "Moved splits folder from parent directory"
+# Verify splits directory exists
+echo ""
+if [ ! -d "splits" ]; then
+    echo "Warning: splits/ directory not found in data/P-DESTRE/"
+    echo "Make sure to create train/val/test split files before training."
+else
+    echo "Splits directory found: data/P-DESTRE/splits/"
 fi
-
-echo "Dataset download and preprocessing completed successfully!"
-echo "Extracted frames are available in the 'images/' directory"
 
 # Clean up the downloaded tar file
 cd ..
 if [ -f "dataset.tar" ]; then
+    echo ""
+    echo "Cleaning up dataset.tar..."
     rm dataset.tar
-    echo "Cleaned up dataset.tar file"
 fi
 
-# Return to original directory
 cd ..
 
-echo "All done!"
-echo "P-DESTRE dataset is now available in: data/P-DESTRE/"
+echo ""
+echo "=========================================="
+echo "Setup Complete!"
+echo "=========================================="
+echo "Dataset location: ${MOTIP_ROOT}/data/P-DESTRE/"
+if [ -d "${MOTIP_ROOT}/data/P-DESTRE/images" ]; then
+    echo "Extracted frames: data/P-DESTRE/images/"
+fi
+if [ -d "${MOTIP_ROOT}/data/P-DESTRE/annotations" ]; then
+    echo "Annotations: data/P-DESTRE/annotations/"
+fi
+if [ -d "${MOTIP_ROOT}/data/P-DESTRE/splits" ]; then
+    echo "Splits: data/P-DESTRE/splits/"
+fi
+echo ""
