@@ -68,16 +68,19 @@ def extract_frames_for_sequence(video_path, output_image_dir):
         video_path (str): Path to the source.MP4 video file.
         output_image_dir (str): Path to the destination folder, 
                                 e.g., ".../images/08-11-2019-1-1/img1"
+    
+    Returns:
+        bool: True if extraction was successful, False otherwise.
     """
     
     if not os.path.exists(video_path):
         print(f"  Warning: Video file not found: {video_path}, skipping.")
-        return
+        return False
 
     vidcap = cv2.VideoCapture(video_path)
     if not vidcap.isOpened():
         print(f"  Error: Could not open video file: {video_path}, skipping.")
-        return
+        return False
 
     # Create the 'img1' directory
     os.makedirs(output_image_dir, exist_ok=True)
@@ -101,6 +104,7 @@ def extract_frames_for_sequence(video_path, output_image_dir):
 
     vidcap.release()
     # print(f"  Successfully extracted {frame_idx} frames.")
+    return True
 
 def main(args):
     """
@@ -115,20 +119,40 @@ def main(args):
 
     print(f"Starting frame extraction for {len(names_paired)} sequences...")
     
+    skipped = 0
+    processed = 0
+    failed = 0
+    
     # 2. Loop through each pair and extract frames
     for name in tqdm(names_paired):
-        print(f"Processing sequence: {name}")
-        # Define the source video path
-        video_path = os.path.join(args.video_dir, f"{name}.{VIDEO_TYPE}")
-        
         # Define the target directory in the 'motip'/'DanceTrack' format
         # e.g., P-DESTRE/images/08-11-2019-1-1/img1/
         output_seq_dir = os.path.join(args.converted_img_dir, name, "img1")
         
-        # Extract all frames
-        extract_frames_for_sequence(video_path, output_seq_dir)
+        # Check if this sequence was already processed
+        if os.path.exists(output_seq_dir) and len(os.listdir(output_seq_dir)) > 0:
+            print(f"Skipping sequence '{name}' (already processed)")
+            skipped += 1
+            continue
         
-    print("Frame extraction complete.")
+        print(f"Processing sequence: {name}")
+        # Define the source video path
+        video_path = os.path.join(args.video_dir, f"{name}.{VIDEO_TYPE}")
+        
+        # Extract all frames
+        success = extract_frames_for_sequence(video_path, output_seq_dir)
+        
+        if success:
+            processed += 1
+            # Delete the video file after successful processing
+            if os.path.exists(video_path):
+                os.remove(video_path)
+                print(f"  Deleted video file: {video_path}")
+        else:
+            failed += 1
+        
+    print("\nFrame extraction complete.")
+    print(f"Processed: {processed}, Skipped: {skipped}, Failed: {failed}")
     print(f"All frames have been saved to: {args.converted_img_dir}")
 
 
