@@ -9,12 +9,24 @@
 #SBATCH --output=logs/motip_fold_3_no_concepts_%j.out
 #SBATCH --error=logs/motip_fold_3_no_concepts_%j.err
 
+# ========================================
+# Setup logging for non-sbatch execution
+# ========================================
+if [ -z "$SLURM_JOB_ID" ]; then
+    # Not running under Slurm, setup manual logging
+    mkdir -p logs
+    LOG_FILE="logs/motip_fold_3_no_concepts_$(date +%Y%m%d_%H%M%S).log"
+    echo "Logging to: $LOG_FILE"
+    # Redirect all output to log file while also displaying on terminal
+    exec > >(tee -a "$LOG_FILE") 2>&1
+fi
+
 echo "=========================================="
 echo "MOTIP Training WITHOUT Concept Bottleneck"
 echo "Baseline MOTIP for comparison (fold_3)"
 echo "Started at $(date)"
 echo "Node: $(hostname)"
-echo "=========================================="
+echo "========================================="
 
 # Make sure we're not in any virtual environment
 if [[ "$VIRTUAL_ENV" != "" ]]; then

@@ -1,19 +1,31 @@
 #!/usr/bin/env bash
-#SBATCH --job-name=motip_rfdetr
+#SBATCH --job-name=motip_rfdetr_all_folds
 #SBATCH --partition=gpu_h100
 #SBATCH --gres=gpu:1
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=8
-#SBATCH --time 10:00:00
+#SBATCH --time=240:00:00
 #SBATCH --mem=32G
-#SBATCH --output=logs/motip_rfdetr_%j.out
-#SBATCH --error=logs/motip_rfdetr_%j.err
+#SBATCH --output=logs/motip_rfdetr_all_folds_%j.out
+#SBATCH --error=logs/motip_rfdetr_all_folds_%j.err
+
+# ========================================
+# Setup logging for non-sbatch execution
+# ========================================
+if [ -z "$SLURM_JOB_ID" ]; then
+    # Not running under Slurm, setup manual logging
+    mkdir -p logs
+    LOG_FILE="logs/motip_rfdetr_all_folds_$(date +%Y%m%d_%H%M%S).log"
+    echo "Logging to: $LOG_FILE"
+    # Redirect all output to log file while also displaying on terminal
+    exec > >(tee -a "$LOG_FILE") 2>&1
+fi
 
 echo "=========================================="
-echo "MOTIP RF-DETR Training Script"
+echo "MOTIP RF-DETR Training Script - All Folds"
 echo "Started at $(date)"
 echo "Node: $(hostname)"
-echo "=========================================="
+echo "========================================="
 
 # Load CUDA module FIRST - this is critical!
 module load devel/cuda/11.8
@@ -91,18 +103,36 @@ python -c "import transformers, timm, supervision, pydantic, pycocotools, fairsc
 #      --resume-model ./outputs/rfdetr_motip_pdestre/checkpoint_epoch_X.pth
 
 # ========================================
-# Run RF-DETR training
+# Run RF-DETR training for all folds
 # ========================================
-echo "Starting RF-DETR + MOTIP training..."
+echo "Starting RF-DETR + MOTIP training for all folds..."
 echo "Model: RF-DETR Medium (DINOv2 backbone)"
-echo "Resolution: 576x576"
-echo "Dataset: P-DESTRE"
+echo "Resolution: 588x588"
+echo "Dataset: P-DESTRE with 7 concepts"
+echo "Training 10 folds sequentially"
+echo ""
 
-accelerate launch --num_processes=1 train.py \
-    --data-root ./data/ \
-    --exp-name rfdetr_motip_pdestre \
-    --config-path ./configs/rfdetr_medium_motip_pdestre.yaml
+# Loop through folds 0-9
+for FOLD in {0..9}; do
+    echo "=========================================="
+    echo "Starting Fold ${FOLD} at $(date)"
+    echo "=========================================="
+    
+    # Override dataset splits for this fold
+    export DATASET_SPLITS="[Train_${FOLD}]"
+    export INFERENCE_SPLIT="val_${FOLD}"
+    
+    accelerate launch --num_processes=1 train.py \
+        --data-root ./data/ \
+        --exp-name rfdetr_motip_pdestre_fold_${FOLD} \
+        --config-path ./configs/rfdetr_medium_motip_pdestre.yaml \
+        --override "DATASET_SPLITS=[Train_${FOLD}]" \
+        --override "INFERENCE_SPLIT=val_${FOLD}"
+    
+    echo "Completed Fold ${FOLD} at $(date)"
+    echo ""
+done
 
-echo "Finished at $(date)"
-
-# First run - batch 2947635 (outputs: rfdetr_motip_pdestre)
+echo "=========================================="
+echo "All folds completed at $(date)"
+echo "=========================================="

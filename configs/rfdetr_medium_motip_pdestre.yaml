@@ -9,9 +9,9 @@ DETR_FRAMEWORK: rf_detr
 
 # --- Data Settings ---
 DATASETS: [P-DESTRE]
-DATASET_SPLITS: [train]
-INFERENCE_DATASET: PDESTRE
-INFERENCE_SPLIT: test
+DATASET_SPLITS: [Train_0]  # Will be overridden by training script for each fold
+INFERENCE_DATASET: P-DESTRE
+INFERENCE_SPLIT: val_0  # Will be overridden by training script for each fold
 
 # --- Sampling Settings (short sequences for faster training) ---
 SAMPLE_STEPS: [0, ]
@@ -67,19 +67,19 @@ DETR_HIDDEN_DIM: 256               # Should match RFDETR.HIDDEN_DIM
 
 # --- MOTIP Concept Settings ---
 MOTIP:
-  # P-DESTRE Gender: 0 (Male), 1 (Female), 2 (Unknown)
-  N_CONCEPTS: 3
-  
-  # Losses to compute
+  N_CONCEPTS: 7  # Number of concept types
+  # CONCEPT_CLASSES: list of [name, num_classes, unknown_label_index]
+  # Column positions: gender=10, hairstyle=16, head_accessories=20, upper_body=21, lower_body=22, feet=23, accessories=24
+  CONCEPT_CLASSES:
+    - ["gender", 3, 2]           # 0=Male, 1=Female, 2=Unknown
+    - ["hairstyle", 6, 5]        # 0=Bald, 1=Short, 2=Medium, 3=Long, 4=Horse Tail, 5=Unknown
+    - ["head_accessories", 5, 4] # 0=Hat, 1=Scarf, 2=Neckless, 3=Cannot see, 4=Unknown
+    - ["upper_body", 13, 12]     # 0=T-Shirt, 1=Blouse, 2=Sweater, 3=Coat, 4=Bikini, 5=Naked, 6=Dress, 7=Uniform, 8=Shirt, 9=Suit, 10=Hoodie, 11=Cardigan, 12=Unknown
+    - ["lower_body", 10, 9]      # 0=Jeans, 1=Leggins, 2=Pants, 3=Shorts, 4=Skirt, 5=Bikini, 6=Dress, 7=Uniform, 8=Suit, 9=Unknown
+    - ["feet", 7, 6]             # 0=Sport Shoe, 1=Classic Shoe, 2=High Heels, 3=Boots, 4=Sandal, 5=Nothing, 6=Unknown
+    - ["accessories", 8, 7]      # 0=Bag, 1=Backpack Bag, 2=Rolling Bag, 3=Umbrella, 4=Sport Bag, 5=Market Bag, 6=Nothing, 7=Unknown
   DETR_LOSSES: [labels, boxes, cardinality, concepts]
-  
-  # Concept loss weight (0.5 is a good starting point)
   CONCEPT_LOSS_COEF: 0.5
-  
-  # Multi-concept support (optional, for additional attributes)
-  # CONCEPT_CLASSES:
-  #   - [gender, 3, 2]        # 3 classes, unknown=2
-  #   - [upper_body, 13, 12]  # 13 classes, unknown=12
 
 # --- Training Strategies ---
 BATCH_SIZE: 2                      # Increase if GPU memory allows

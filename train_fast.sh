@@ -9,11 +9,23 @@
 #SBATCH --output=logs/motip_fixed_fold_3_%j.out
 #SBATCH --error=logs/motip_fixed_fold_3_%j.err
 
+# ========================================
+# Setup logging for non-sbatch execution
+# ========================================
+if [ -z "$SLURM_JOB_ID" ]; then
+    # Not running under Slurm, setup manual logging
+    mkdir -p logs
+    LOG_FILE="logs/motip_fixed_fold_3_$(date +%Y%m%d_%H%M%S).log"
+    echo "Logging to: $LOG_FILE"
+    # Redirect all output to log file while also displaying on terminal
+    exec > >(tee -a "$LOG_FILE") 2>&1
+fi
+
 echo "=========================================="
 echo "MOTIP Fixed Training Script - Fold 3"
 echo "Started at $(date)"
 echo "Node: $(hostname)"
-echo "=========================================="
+echo "========================================="
 
 # Load CUDA module FIRST - this is critical!
 module load devel/cuda/11.8
