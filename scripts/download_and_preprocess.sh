@@ -109,6 +109,22 @@ cd ..
 
 echo ""
 echo "=========================================="
+echo "Cloning RF-DETR Repository"
+echo "=========================================="
+# Clone RF-DETR repository as sibling to MOTIP directory
+RFDETR_DIR="${MOTIP_ROOT}/../rf-detr"
+if [ ! -d "$RFDETR_DIR" ]; then
+    echo "Cloning RF-DETR repository..."
+    cd "${MOTIP_ROOT}/.."
+    git clone https://github.com/roboflow/rf-detr.git rf-detr
+    echo "RF-DETR repository cloned to: $RFDETR_DIR"
+else
+    echo "RF-DETR repository already exists at: $RFDETR_DIR"
+fi
+cd "${MOTIP_ROOT}"
+
+echo ""
+echo "=========================================="
 echo "Building CUDA Operators"
 echo "=========================================="
 echo "Building MultiScaleDeformableAttention CUDA extension..."

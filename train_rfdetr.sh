@@ -100,13 +100,7 @@ python -c "import wandb, transformers, timm, supervision, pydantic, pycocotools,
     echo "Dependencies installed successfully!"
 }
 
-# Install rfdetr package if not already installed
-echo "Checking rfdetr package..."
-python -c "import rfdetr" 2>/dev/null || {
-    echo "Installing rfdetr package..."
-    pip install --quiet git+https://github.com/lyuwenyu/RT-DETR.git
-    echo "rfdetr package installed successfully!"
-}
+
 
 # ========================================
 # Build CUDA operators if needed
