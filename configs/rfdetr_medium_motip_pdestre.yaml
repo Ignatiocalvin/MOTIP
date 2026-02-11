@@ -7,6 +7,9 @@ SUPER_CONFIG_PATH: ./configs/r50_deformable_detr_motip_dancetrack.yaml
 # --- Override DETR Framework ---
 DETR_FRAMEWORK: rf_detr
 
+# --- Override old NUM_CONCEPTS (from base config) ---
+NUM_CONCEPTS: 7  # Override base config's NUM_CONCEPTS: 3
+
 # --- Data Settings ---
 DATASETS: [P-DESTRE]
 DATASET_SPLITS: [Train_0]  # Will be overridden by training script for each fold

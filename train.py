@@ -26,7 +26,7 @@ from log.log import TPS, Metrics
 from models.misc import load_detr_pretrain, save_checkpoint, load_checkpoint
 from models.misc import get_model
 from utils.nested_tensor import NestedTensor
-from submit_and_evaluate import submit_and_evaluate_one_model
+from evaluation.submit_and_evaluate import submit_and_evaluate_one_model
 
 # CLIP classifier for comparison (optional, initialized lazily)
 _clip_classifier = None

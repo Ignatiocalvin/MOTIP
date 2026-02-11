@@ -27,21 +27,34 @@ echo "Started at $(date)"
 echo "Node: $(hostname)"
 echo "========================================="
 
-# Load CUDA module FIRST - this is critical!
-module load devel/cuda/11.8
+# Load CUDA module (HPC only)
+if command -v module &> /dev/null; then
+    module load devel/cuda/11.8 || echo "Could not load CUDA module, assuming CUDA is already available"
+fi
 
 # Make sure we're not in any virtual environment
 if [[ "$VIRTUAL_ENV" != "" ]]; then
     deactivate
 fi
 
-# Source conda
-source ~/miniconda3/etc/profile.d/conda.sh
-conda activate MOTIP
+# Source conda (if available)
+if [ -f ~/miniconda3/etc/profile.d/conda.sh ]; then
+    source ~/miniconda3/etc/profile.d/conda.sh
+    conda activate MOTIP
+elif [ -f ~/anaconda3/etc/profile.d/conda.sh ]; then
+    source ~/anaconda3/etc/profile.d/conda.sh
+    conda activate MOTIP
+else
+    echo "Conda not found, using system Python"
+fi
 
-# Set CUDA environment for H100 GPUs (compute capability 9.0)
-export TORCH_CUDA_ARCH_LIST="9.0" 
-export CUDA_HOME='/opt/bwhpc/common/devel/cuda/11.8'
+# Set CUDA environment (adjust based on your GPU)
+export TORCH_CUDA_ARCH_LIST="8.9"  # RTX 4070 Ti SUPER (Ada Lovelace)
+if [ -d "/usr/local/cuda" ]; then
+    export CUDA_HOME="/usr/local/cuda"
+elif [ -d "/opt/bwhpc/common/devel/cuda/11.8" ]; then
+    export CUDA_HOME="/opt/bwhpc/common/devel/cuda/11.8"
+fi
 export CUDA_VISIBLE_DEVICES=0
 
 # Debug: Check GPU availability
@@ -61,12 +74,13 @@ if ! python -c "import torch; assert torch.cuda.is_available()"; then
 fi
 
 # ========================================
-# Install RF-DETR dependencies (first run only)
+# Install dependencies (first run only)
 # ========================================
-echo "Checking RF-DETR dependencies..."
-python -c "import transformers, timm, supervision, pydantic, pycocotools, fairscale, einops, peft, scipy, open_clip_torch, pylabel, pandas, roboflow" 2>/dev/null || {
-    echo "Installing RF-DETR dependencies (this may take a few minutes)..."
+echo "Checking dependencies..."
+python -c "import wandb, transformers, timm, supervision, pydantic, pycocotools, fairscale, einops, peft, scipy, open_clip_torch, pylabel, pandas, roboflow" 2>/dev/null || {
+    echo "Installing missing dependencies (this may take a few minutes)..."
     pip install --quiet \
+        wandb \
         cython \
         pycocotools \
         fairscale \
@@ -83,7 +97,27 @@ python -c "import transformers, timm, supervision, pydantic, pycocotools, fairsc
         supervision \
         matplotlib \
         roboflow
-    echo "RF-DETR dependencies installed successfully!"
+    echo "Dependencies installed successfully!"
+}
+
+# Install rfdetr package if not already installed
+echo "Checking rfdetr package..."
+python -c "import rfdetr" 2>/dev/null || {
+    echo "Installing rfdetr package..."
+    pip install --quiet git+https://github.com/lyuwenyu/RT-DETR.git
+    echo "rfdetr package installed successfully!"
+}
+
+# ========================================
+# Build CUDA operators if needed
+# ========================================
+echo "Checking if CUDA operators are built..."
+python -c "import MultiScaleDeformableAttention" 2>/dev/null || {
+    echo "Building CUDA operators (first run only, may take a few minutes)..."
+    cd models/ops
+    python setup.py build install
+    cd ../..
+    echo "CUDA operators built successfully!"
 }
 
 # ========================================
@@ -113,21 +147,31 @@ echo "Training 10 folds sequentially"
 echo ""
 
 # Loop through folds 0-9
-for FOLD in {0..9}; do
+for FOLD in {0..0}; do
     echo "=========================================="
     echo "Starting Fold ${FOLD} at $(date)"
     echo "=========================================="
     
-    # Override dataset splits for this fold
-    export DATASET_SPLITS="[Train_${FOLD}]"
-    export INFERENCE_SPLIT="val_${FOLD}"
+    # Create a temporary config file for this fold
+    FOLD_CONFIG="/tmp/rfdetr_fold_${FOLD}.yaml"
+    cat > "$FOLD_CONFIG" << EOF
+# Temporary config for fold ${FOLD}
+SUPER_CONFIG_PATH: ./configs/rfdetr_medium_motip_pdestre.yaml
+
+# Override dataset splits for this fold
+DATASETS: [P-DESTRE]
+DATASET_SPLITS: [Train_${FOLD}]
+INFERENCE_DATASET: P-DESTRE
+INFERENCE_SPLIT: val_${FOLD}
+EOF
     
     accelerate launch --num_processes=1 train.py \
         --data-root ./data/ \
         --exp-name rfdetr_motip_pdestre_fold_${FOLD} \
-        --config-path ./configs/rfdetr_medium_motip_pdestre.yaml \
-        --override "DATASET_SPLITS=[Train_${FOLD}]" \
-        --override "INFERENCE_SPLIT=val_${FOLD}"
+        --config-path "$FOLD_CONFIG"
+    
+    # Clean up temporary config
+    rm -f "$FOLD_CONFIG"
     
     echo "Completed Fold ${FOLD} at $(date)"
     echo ""

@@ -33,16 +33,29 @@ if [[ "$VIRTUAL_ENV" != "" ]]; then
     deactivate
 fi
 
-# Source conda
-source ~/miniconda3/etc/profile.d/conda.sh
-conda activate MOTIP
+# Source conda (if available)
+if [ -f ~/miniconda3/etc/profile.d/conda.sh ]; then
+    source ~/miniconda3/etc/profile.d/conda.sh
+    conda activate MOTIP
+elif [ -f ~/anaconda3/etc/profile.d/conda.sh ]; then
+    source ~/anaconda3/etc/profile.d/conda.sh
+    conda activate MOTIP
+else
+    echo "Conda not found, using system Python"
+fi
 
-# Load CUDA module
-module load devel/cuda/11.8
+# Load CUDA module (HPC only)
+if command -v module &> /dev/null; then
+    module load devel/cuda/11.8 || echo "Could not load CUDA module, assuming CUDA is already available"
+fi
 
 # Set CUDA environment
-export TORCH_CUDA_ARCH_LIST="9.0" 
-export CUDA_HOME='/opt/bwhpc/common/devel/cuda/11.8'
+export TORCH_CUDA_ARCH_LIST="8.9"
+if [ -d "/usr/local/cuda" ]; then
+    export CUDA_HOME="/usr/local/cuda"
+elif [ -d "/opt/bwhpc/common/devel/cuda/11.8" ]; then
+    export CUDA_HOME="/opt/bwhpc/common/devel/cuda/11.8"
+fi
 export CUDA_VISIBLE_DEVICES=0
 # Force unbuffered Python output so logs appear immediately
 export PYTHONUNBUFFERED=1

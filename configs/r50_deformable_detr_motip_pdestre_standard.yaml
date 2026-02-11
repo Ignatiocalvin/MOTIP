@@ -30,7 +30,7 @@ NUM_WORKERS: 0  # Set to 0 to bypass multiprocessing deadlock with num_concepts=
 PREFETCH_FACTOR: 4
 
 # Intra-epoch checkpointing
-SAVE_CHECKPOINT_EVERY_N_STEPS: 5000
+SAVE_CHECKPOINT_EVERY_N_STEPS: 0  # Disabled to save memory (was 5000)
 RESUME_FROM_STEP: 0
 
 # Outputs

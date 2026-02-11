@@ -109,6 +109,16 @@ cd ..
 
 echo ""
 echo "=========================================="
+echo "Building CUDA Operators"
+echo "=========================================="
+echo "Building MultiScaleDeformableAttention CUDA extension..."
+cd "${MOTIP_ROOT}/models/ops"
+python setup.py build install
+cd "${MOTIP_ROOT}"
+echo "CUDA operators built successfully!"
+
+echo ""
+echo "=========================================="
 echo "Setup Complete!"
 echo "=========================================="
 echo "Dataset location: ${MOTIP_ROOT}/data/P-DESTRE/"

@@ -39,10 +39,10 @@ EPOCHS: 30  # Increased from 3 - detection models need more training
 NUM_WORKERS: 5              # Increased from 2 for better data loading
 PREFETCH_FACTOR: 4          # Increased prefetch
 
-# --- Intra-epoch checkpointing (CRITICAL for long jobs) ---
-# Saves checkpoint every 5000 steps (~15 hours of work)
+# --- Intra-epoch checkpointing (DISABLED to save memory) ---
+# Saves checkpoint every N steps - was 5000 (~15 hours of work)
 # Allows resuming if job times out at 72 hours
-SAVE_CHECKPOINT_EVERY_N_STEPS: 5000
+SAVE_CHECKPOINT_EVERY_N_STEPS: 0  # Disabled to reduce disk usage
 RESUME_FROM_STEP: 0         # Set this to resume from a mid-epoch checkpoint
 
 # --- Outputs ---
