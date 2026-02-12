@@ -6,10 +6,26 @@ import sys
 # Add RF-DETR to Python path (must be before any rfdetr imports)
 # RF-DETR is expected to be at ../rf-detr relative to MOTIP directory
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
-RFDETR_PATH = os.path.join(SCRIPT_DIR, '..', 'rf-detr')
+RFDETR_PATH = os.path.abspath(os.path.join(SCRIPT_DIR, '..', 'rf-detr'))
+print(f"[DEBUG] SCRIPT_DIR: {SCRIPT_DIR}")
+print(f"[DEBUG] Looking for RF-DETR at: {RFDETR_PATH}")
+print(f"[DEBUG] RF-DETR exists: {os.path.exists(RFDETR_PATH)}")
+if os.path.exists(RFDETR_PATH):
+    rfdetr_package = os.path.join(RFDETR_PATH, 'rfdetr')
+    print(f"[DEBUG] rfdetr package exists: {os.path.exists(rfdetr_package)}")
+    if os.path.exists(rfdetr_package):
+        print(f"[DEBUG] Contents of {RFDETR_PATH}: {os.listdir(RFDETR_PATH)[:10]}")
+        print(f"[DEBUG] Contents of {rfdetr_package}: {os.listdir(rfdetr_package)[:10]}")
+
 if os.path.exists(RFDETR_PATH) and RFDETR_PATH not in sys.path:
     sys.path.insert(0, RFDETR_PATH)
     print(f"[INFO] Added RF-DETR to Python path: {RFDETR_PATH}")
+    print(f"[DEBUG] sys.path[0]: {sys.path[0]}")
+elif not os.path.exists(RFDETR_PATH):
+    print(f"[ERROR] RF-DETR path does not exist: {RFDETR_PATH}")
+    print(f"[ERROR] Please clone rf-detr at /workspace/rf-detr")
+else:
+    print(f"[INFO] RF-DETR path already in sys.path")
 
 import math
 import torch
