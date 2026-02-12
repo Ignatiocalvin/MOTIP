@@ -198,14 +198,24 @@ class JointDataset(Dataset):
         image_paths = [
             self.image_paths[dataset][split][sequence][frame_idx] for frame_idx in frame_idxs
         ]
-        # Read images:
-        # images = [
-        #     read_image(image_path) for image_path in image_paths
-        # ]   # a list of tensors, shape=(C, H, W), dtype=torch.uint8
-        images = [
-            Image.open(image_path) for image_path in image_paths
-        ]  # a list of tensors, shape=(C, H, W), dtype=torch.uint8
-        # images = torch.stack(images, dim=0)     # shape=(N, C, H, W), dtype=torch.uint8
+        # Read images and filter out missing ones:
+        images = []
+        valid_frame_idxs = []
+        for frame_idx, image_path in zip(frame_idxs, image_paths):
+            try:
+                images.append(Image.open(image_path))
+                valid_frame_idxs.append(frame_idx)
+            except FileNotFoundError:
+                # Skip missing images silently
+                continue
+        
+        # If all images are missing, skip this sample by returning the next one
+        if len(images) == 0:
+            return self.__getitem__((idx + 1) % len(self))
+        
+        # Update frame_idxs to only include valid frames
+        frame_idxs = valid_frame_idxs
+        
         # Get annotations:
         annotations = [
             self.annotations[dataset][split][sequence][frame_idx] for frame_idx in frame_idxs

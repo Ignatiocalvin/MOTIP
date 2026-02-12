@@ -311,8 +311,39 @@ class MultiColorJitter:
             images = self.color_jitter(images)
         elif isinstance(images, list):
             assert isinstance(images[0], Image.Image)
-            params = self.color_jitter._get_params([images[0]])
-            images = [self.color_jitter._transform(_, params=params) for _ in images]
+            # Compatibility fix: Apply same color jitter to all images
+            # Get the transform function once with fixed random state
+            fn_idx = torch.randperm(4) if any([self.color_jitter.brightness, self.color_jitter.contrast, 
+                                               self.color_jitter.saturation, self.color_jitter.hue]) else torch.arange(4)
+            
+            # Get random parameters
+            brightness_factor = None
+            if self.color_jitter.brightness is not None:
+                brightness_factor = float(torch.empty(1).uniform_(self.color_jitter.brightness[0], 
+                                                                   self.color_jitter.brightness[1]))
+            contrast_factor = None
+            if self.color_jitter.contrast is not None:
+                contrast_factor = float(torch.empty(1).uniform_(self.color_jitter.contrast[0], 
+                                                                 self.color_jitter.contrast[1]))
+            saturation_factor = None
+            if self.color_jitter.saturation is not None:
+                saturation_factor = float(torch.empty(1).uniform_(self.color_jitter.saturation[0], 
+                                                                   self.color_jitter.saturation[1]))
+            hue_factor = None
+            if self.color_jitter.hue is not None:
+                hue_factor = float(torch.empty(1).uniform_(self.color_jitter.hue[0], 
+                                                           self.color_jitter.hue[1]))
+            
+            # Apply same transforms to all images in the order specified by fn_idx
+            for fn_id in fn_idx:
+                if fn_id == 0 and brightness_factor is not None:
+                    images = [T.functional.adjust_brightness(img, brightness_factor) for img in images]
+                elif fn_id == 1 and contrast_factor is not None:
+                    images = [T.functional.adjust_contrast(img, contrast_factor) for img in images]
+                elif fn_id == 2 and saturation_factor is not None:
+                    images = [T.functional.adjust_saturation(img, saturation_factor) for img in images]
+                elif fn_id == 3 and hue_factor is not None:
+                    images = [T.functional.adjust_hue(img, hue_factor) for img in images]
         else:
             raise NotImplementedError(f"The input image type {type(images)} is not supported.")
         return images, annotations, metas

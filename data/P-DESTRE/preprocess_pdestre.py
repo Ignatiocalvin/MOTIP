@@ -129,9 +129,9 @@ def main(args):
         # e.g., P-DESTRE/images/08-11-2019-1-1/img1/
         output_seq_dir = os.path.join(args.converted_img_dir, name, "img1")
         
-        # Check if this sequence was already processed
-        if os.path.exists(output_seq_dir) and len(os.listdir(output_seq_dir)) > 0:
-            print(f"Skipping sequence '{name}' (already processed)")
+        # Check if this sequence was already processed (unless --force is used)
+        if not args.force and os.path.exists(output_seq_dir) and len(os.listdir(output_seq_dir)) > 0:
+            print(f"Skipping sequence '{name}' (already processed, use --force to reprocess)")
             skipped += 1
             continue
         
@@ -175,6 +175,9 @@ if __name__ == "__main__":
     parser.add_argument('--converted_img_dir', type=str, 
                         default=os.path.join(DEFAULT_DATA_ROOT, 'images'),
                         help="Path to the *output* folder where extracted frames will be saved.")
+    
+    parser.add_argument('--force', action='store_true',
+                        help="Force reprocessing of all sequences, even if already processed")
     
     args = parser.parse_args()
     

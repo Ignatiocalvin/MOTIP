@@ -207,11 +207,8 @@ class RFDETR_MOTIP(nn.Module):
                 - aux_outputs: optional intermediate layer outputs
                 - enc_outputs: optional encoder outputs (two-stage)
         """
-        print(f"[DEBUG RFDETR] Forward pass starting...", flush=True)
         if isinstance(samples, (list, torch.Tensor)):
             samples = nested_tensor_from_tensor_list(samples)
-        
-        print(f"[DEBUG RFDETR] Input shape: {samples.tensors.shape}", flush=True)
         
         # RF-DETR with DINOv2 windowed attention requires:
         # 1. Square images (H == W) for windowed attention to work correctly
@@ -233,9 +230,7 @@ class RFDETR_MOTIP(nn.Module):
             samples = NestedTensor(tensors, mask)
         
         # Backbone feature extraction
-        print(f"[DEBUG RFDETR] Running backbone...", flush=True)
         features, poss = self.backbone(samples)
-        print(f"[DEBUG RFDETR] Backbone done, got {len(features)} feature levels", flush=True)
         
         srcs = []
         masks = []
@@ -255,11 +250,9 @@ class RFDETR_MOTIP(nn.Module):
             query_feat_weight = self.query_feat.weight[:self.num_queries]
         
         # Transformer forward
-        print(f"[DEBUG] Running transformer...")
         hs, ref_unsigmoid, hs_enc, ref_enc = self.transformer(
             srcs, masks, poss, refpoint_embed_weight, query_feat_weight
         )
-        print(f"[DEBUG] Transformer done")
         
         out = {}
         
