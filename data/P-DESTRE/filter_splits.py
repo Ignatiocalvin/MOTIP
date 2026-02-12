@@ -269,7 +269,7 @@ def main():
     print(f"\n{'DRY RUN: Would delete' if args.dry_run else 'Deleting'} sequences...")
     deleted, size_freed = delete_sequences(sequences, to_keep, args.dry_run)
     
-    prDelete corresponding annotation files
+    # Delete corresponding annotation files
     print(f"\n{'DRY RUN: Would delete' if args.dry_run else 'Deleting'} annotation files...")
     deleted_annotations = delete_annotations(args.annotations_dir, to_keep, args.dry_run)
     print(f"  {'Would delete' if args.dry_run else 'Deleted'} {len(deleted_annotations)} annotation files")
