@@ -22,9 +22,18 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 # Add rf-detr to path
-RFDETR_PATH = os.path.join(os.path.dirname(__file__), '..', '..', '..', 'rf-detr')
+RFDETR_PATH = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..', '..', 'rf-detr'))
+print(f"[DEBUG rfdetr_motip.py] RFDETR_PATH: {RFDETR_PATH}")
+print(f"[DEBUG rfdetr_motip.py] Path exists: {os.path.exists(RFDETR_PATH)}")
+if os.path.exists(RFDETR_PATH):
+    rfdetr_pkg = os.path.join(RFDETR_PATH, 'rfdetr')
+    print(f"[DEBUG rfdetr_motip.py] rfdetr package exists: {os.path.exists(rfdetr_pkg)}")
+    if os.path.exists(rfdetr_pkg):
+        print(f"[DEBUG rfdetr_motip.py] Contents: {os.listdir(rfdetr_pkg)[:10]}")
 if RFDETR_PATH not in sys.path:
-    sys.path.insert(0, os.path.abspath(RFDETR_PATH))
+    sys.path.insert(0, RFDETR_PATH)
+    print(f"[DEBUG rfdetr_motip.py] Added to sys.path")
+print(f"[DEBUG rfdetr_motip.py] Current sys.path[0]: {sys.path[0]}")
 
 from rfdetr.models.backbone import build_backbone
 from rfdetr.models.transformer import build_transformer
