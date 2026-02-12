@@ -81,10 +81,10 @@ fi
 # Run the preprocessing script from data/P-DESTRE/
 echo ""
 echo "Extracting frames from videos..."
-if [ -f "preprocess_each.py" ]; then
-    python preprocess_each.py
+if [ -f "preprocess_pdestre.py" ]; then
+    python preprocess_pdestre.py
 else
-    echo "Warning: preprocess_each.py not found in data/P-DESTRE/"
+    echo "Warning: preprocess_pdestre.py not found in data/P-DESTRE/"
     echo "Skipping frame extraction. You may need to run it manually."
 fi
 
@@ -121,6 +121,22 @@ if [ ! -d "$RFDETR_DIR" ]; then
 else
     echo "RF-DETR repository already exists at: $RFDETR_DIR"
 fi
+
+# Apply compatibility fixes to RF-DETR's DINOv2 backbone
+echo ""
+echo "Applying transformers compatibility fixes to RF-DETR..."
+DINOV2_SOURCE="${MOTIP_ROOT}/rf-detr/rfdetr/models/backbone/dinov2_with_windowed_attn.py"
+DINOV2_TARGET="${RFDETR_DIR}/rfdetr/models/backbone/dinov2_with_windowed_attn.py"
+
+if [ -f "$DINOV2_SOURCE" ]; then
+    echo "Copying fixed dinov2_with_windowed_attn.py to RF-DETR..."
+    cp "$DINOV2_SOURCE" "$DINOV2_TARGET"
+    echo "✓ Applied compatibility fixes for transformers v5.x"
+else
+    echo "Warning: Fixed DINOv2 file not found at: $DINOV2_SOURCE"
+    echo "You may need to manually apply transformers compatibility fixes."
+fi
+
 cd "${MOTIP_ROOT}"
 
 echo ""
