@@ -198,23 +198,16 @@ class JointDataset(Dataset):
         image_paths = [
             self.image_paths[dataset][split][sequence][frame_idx] for frame_idx in frame_idxs
         ]
-        # Read images and filter out missing ones:
+        # Read images - all images must exist:
         images = []
-        valid_frame_idxs = []
         for frame_idx, image_path in zip(frame_idxs, image_paths):
-            try:
-                images.append(Image.open(image_path))
-                valid_frame_idxs.append(frame_idx)
-            except FileNotFoundError:
-                # Skip missing images silently
-                continue
-        
-        # If all images are missing, skip this sample by returning the next one
-        if len(images) == 0:
-            return self.__getitem__((idx + 1) % len(self))
-        
-        # Update frame_idxs to only include valid frames
-        frame_idxs = valid_frame_idxs
+            if not os.path.exists(image_path):
+                raise FileNotFoundError(
+                    f"Image not found: {image_path}\n"
+                    f"Dataset: {dataset}, Split: {split}, Sequence: {sequence}, Frame: {frame_idx}\n"
+                    f"Please check your data directory and annotations."
+                )
+            images.append(Image.open(image_path))
         
         # Get annotations:
         annotations = [
