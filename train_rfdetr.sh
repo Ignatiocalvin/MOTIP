@@ -164,7 +164,9 @@ INFERENCE_DATASET: P-DESTRE
 INFERENCE_SPLIT: val_${FOLD}
 EOF
     
-    PYTHONPATH="${SCRIPT_DIR}/../rf-detr:${PYTHONPATH}" accelerate launch --num_processes=1 train.py \
+    # Launch with explicit PYTHONPATH
+    env PYTHONPATH="${SCRIPT_DIR}/../rf-detr:${PYTHONPATH}" \
+    accelerate launch --num_processes=1 train.py \
         --data-root ./data/ \
         --exp-name rfdetr_motip_pdestre_fold_${FOLD} \
         --config-path "$FOLD_CONFIG"
