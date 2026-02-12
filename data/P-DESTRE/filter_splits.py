@@ -205,9 +205,7 @@ def update_split_files(splits_dir, to_keep, dry_run=True):
         if f.endswith('.txt') and not f.endswith(BACKUP_SUFFIX)
         and any(f.startswith(p) for p in ['Train_', 'Test_', 'val_'])
     ]
-    annotations-dir', default=ANNOTATIONS_DIR,
-                       help='Path to annotations directory')
-    parser.add_argument('--
+    
     for split_file in sorted(split_files):
         split_path = os.path.join(splits_dir, split_file)
         backup_path = split_path + BACKUP_SUFFIX
@@ -235,6 +233,8 @@ def main():
                        help='Show what would be deleted without actually deleting')
     parser.add_argument('--images-dir', default=IMAGES_DIR,
                        help='Path to images directory')
+    parser.add_argument('--annotations-dir', default=ANNOTATIONS_DIR,
+                       help='Path to annotations directory')
     parser.add_argument('--splits-dir', default=SPLITS_DIR,
                        help='Path to splits directory')
     parser.add_argument('--target-reduction', type=float, default=TARGET_REDUCTION,
