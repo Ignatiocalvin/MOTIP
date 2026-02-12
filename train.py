@@ -1,6 +1,16 @@
 # Copyright (c) Ruopeng Gao. All Rights Reserved.
 
 import os
+import sys
+
+# Add RF-DETR to Python path (must be before any rfdetr imports)
+# RF-DETR is expected to be at ../rf-detr relative to MOTIP directory
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+RFDETR_PATH = os.path.join(SCRIPT_DIR, '..', 'rf-detr')
+if os.path.exists(RFDETR_PATH) and RFDETR_PATH not in sys.path:
+    sys.path.insert(0, RFDETR_PATH)
+    print(f"[INFO] Added RF-DETR to Python path: {RFDETR_PATH}")
+
 import math
 import torch
 import einops
