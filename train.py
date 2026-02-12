@@ -343,7 +343,7 @@ def train_one_epoch(
         separate_clip_norm: bool = True,
         max_clip_norm: float = 0.1,
         use_accelerate_clip_norm: bool = True,
-        logging_interval: int = 50,
+        logging_interval: int = 900,
         # For multi last checkpoints:
         outputs_dir: str = None,
         is_last_epochs: bool = False,
