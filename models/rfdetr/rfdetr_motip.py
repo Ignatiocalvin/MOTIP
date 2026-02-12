@@ -21,26 +21,18 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-# Add rf-detr to path
-RFDETR_PATH = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..', '..', 'rf-detr'))
-print(f"[DEBUG rfdetr_motip.py] RFDETR_PATH: {RFDETR_PATH}")
-print(f"[DEBUG rfdetr_motip.py] Path exists: {os.path.exists(RFDETR_PATH)}")
+# Add rf-detr to path - RF-DETR uses src/ layout
+RFDETR_BASE = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..', '..', 'rf-detr'))
+RFDETR_PATH = os.path.join(RFDETR_BASE, 'src')
+print(f"[DEBUG rfdetr_motip.py] RFDETR_BASE: {RFDETR_BASE}")
+print(f"[DEBUG rfdetr_motip.py] RFDETR_PATH (src/): {RFDETR_PATH}")
+print(f"[DEBUG rfdetr_motip.py] src/ exists: {os.path.exists(RFDETR_PATH)}")
 if os.path.exists(RFDETR_PATH):
-    print(f"[DEBUG rfdetr_motip.py] Contents of rf-detr/: {os.listdir(RFDETR_PATH)}")
     rfdetr_pkg = os.path.join(RFDETR_PATH, 'rfdetr')
-    print(f"[DEBUG rfdetr_motip.py] rfdetr package exists: {os.path.exists(rfdetr_pkg)}")
-    # Check if it's at the root level
-    if not os.path.exists(rfdetr_pkg):
-        # Try checking if models/ exists at root (common RF-DETR structure)
-        models_dir = os.path.join(RFDETR_PATH, 'models')
-        if os.path.exists(models_dir):
-            print(f"[DEBUG rfdetr_motip.py] Found models/ at root, using RFDETR_PATH as is")
-            RFDETR_PATH = RFDETR_PATH  # It's at the root
-        else:
-            print(f"[ERROR rfdetr_motip.py] Cannot find rfdetr package structure")
+    print(f"[DEBUG rfdetr_motip.py] rfdetr package at src/rfdetr exists: {os.path.exists(rfdetr_pkg)}")
 if RFDETR_PATH not in sys.path:
     sys.path.insert(0, RFDETR_PATH)
-    print(f"[DEBUG rfdetr_motip.py] Added to sys.path[0]: {RFDETR_PATH}")
+    print(f"[INFO rfdetr_motip.py] Added RF-DETR src/ to sys.path: {RFDETR_PATH}")
 
 from rfdetr.models.backbone import build_backbone
 from rfdetr.models.transformer import build_transformer
