@@ -122,13 +122,46 @@ class PDESTRE(DanceTrack):
                 print(f"Warning: Image directory not found for sequence {sequence_name} at {image_dir}, skipping.")
                 continue
             
-            # Count .jpg files in the image directory
-            image_files = [f for f in os.listdir(image_dir) if f.endswith('.jpg')]
-            max_frame = len(image_files)
+            # Get sorted list of actual frame numbers from files (not just count)
+            image_files = sorted([f for f in os.listdir(image_dir) if f.endswith('.jpg')])
             
-            if max_frame == 0:
+            if len(image_files) == 0:
                 print(f"Warning: No image files found for sequence {sequence_name} in {image_dir}, skipping.")
                 continue
+            
+            # Extract frame numbers and check for gaps
+            frame_numbers = []
+            for img_file in image_files:
+                try:
+                    # Remove .jpg extension and convert to int
+                    frame_num = int(img_file.replace('.jpg', ''))
+                    frame_numbers.append(frame_num)
+                except ValueError:
+                    print(f"Warning: Invalid image filename '{img_file}' in {image_dir}, skipping file.")
+                    continue
+            
+            if len(frame_numbers) == 0:
+                print(f"Warning: No valid image files found for sequence {sequence_name}, skipping.")
+                continue
+            
+            # Check if frames are consecutive
+            expected_frames = set(range(1, max(frame_numbers) + 1))
+            actual_frames = set(frame_numbers)
+            missing_frames = expected_frames - actual_frames
+            
+            if missing_frames:
+                print(f"Warning: Sequence {sequence_name} has {len(missing_frames)} missing frames (e.g., {sorted(list(missing_frames))[:5]}...)")
+                print(f"         Using only the first consecutive segment ({frame_numbers[0]} to {frame_numbers[0] + len(frame_numbers) - 1}).")
+                # Find the longest consecutive sequence starting from the beginning
+                consecutive_count = 1
+                for i in range(len(frame_numbers) - 1):
+                    if frame_numbers[i+1] == frame_numbers[i] + 1:
+                        consecutive_count += 1
+                    else:
+                        break
+                max_frame = consecutive_count
+            else:
+                max_frame = len(frame_numbers)
 
             sequence_infos[sequence_name] = {
                 "width": IMG_WIDTH,
