@@ -57,9 +57,9 @@ elif [ -d "/opt/bwhpc/common/devel/cuda/11.8" ]; then
 fi
 export CUDA_VISIBLE_DEVICES=0
 
-# Add RF-DETR to Python path
+# Add RF-DETR to Python path (rf-detr is sibling to MOTIP directory)
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
-export PYTHONPATH="${SCRIPT_DIR}/rf-detr:${PYTHONPATH}"
+export PYTHONPATH="${SCRIPT_DIR}/../rf-detr:${PYTHONPATH}"
 echo "PYTHONPATH set to include RF-DETR: ${PYTHONPATH}"
 
 # Debug: Check GPU availability
@@ -164,7 +164,7 @@ INFERENCE_DATASET: P-DESTRE
 INFERENCE_SPLIT: val_${FOLD}
 EOF
     
-    accelerate launch --num_processes=1 train.py \
+    PYTHONPATH="${SCRIPT_DIR}/../rf-detr:${PYTHONPATH}" accelerate launch --num_processes=1 train.py \
         --data-root ./data/ \
         --exp-name rfdetr_motip_pdestre_fold_${FOLD} \
         --config-path "$FOLD_CONFIG"
