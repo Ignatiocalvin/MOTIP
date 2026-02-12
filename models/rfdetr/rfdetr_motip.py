@@ -26,14 +26,21 @@ RFDETR_PATH = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'
 print(f"[DEBUG rfdetr_motip.py] RFDETR_PATH: {RFDETR_PATH}")
 print(f"[DEBUG rfdetr_motip.py] Path exists: {os.path.exists(RFDETR_PATH)}")
 if os.path.exists(RFDETR_PATH):
+    print(f"[DEBUG rfdetr_motip.py] Contents of rf-detr/: {os.listdir(RFDETR_PATH)}")
     rfdetr_pkg = os.path.join(RFDETR_PATH, 'rfdetr')
     print(f"[DEBUG rfdetr_motip.py] rfdetr package exists: {os.path.exists(rfdetr_pkg)}")
-    if os.path.exists(rfdetr_pkg):
-        print(f"[DEBUG rfdetr_motip.py] Contents: {os.listdir(rfdetr_pkg)[:10]}")
+    # Check if it's at the root level
+    if not os.path.exists(rfdetr_pkg):
+        # Try checking if models/ exists at root (common RF-DETR structure)
+        models_dir = os.path.join(RFDETR_PATH, 'models')
+        if os.path.exists(models_dir):
+            print(f"[DEBUG rfdetr_motip.py] Found models/ at root, using RFDETR_PATH as is")
+            RFDETR_PATH = RFDETR_PATH  # It's at the root
+        else:
+            print(f"[ERROR rfdetr_motip.py] Cannot find rfdetr package structure")
 if RFDETR_PATH not in sys.path:
     sys.path.insert(0, RFDETR_PATH)
-    print(f"[DEBUG rfdetr_motip.py] Added to sys.path")
-print(f"[DEBUG rfdetr_motip.py] Current sys.path[0]: {sys.path[0]}")
+    print(f"[DEBUG rfdetr_motip.py] Added to sys.path[0]: {RFDETR_PATH}")
 
 from rfdetr.models.backbone import build_backbone
 from rfdetr.models.transformer import build_transformer
