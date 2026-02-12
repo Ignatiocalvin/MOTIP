@@ -57,6 +57,11 @@ elif [ -d "/opt/bwhpc/common/devel/cuda/11.8" ]; then
 fi
 export CUDA_VISIBLE_DEVICES=0
 
+# Add RF-DETR to Python path
+SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
+export PYTHONPATH="${SCRIPT_DIR}/rf-detr:${PYTHONPATH}"
+echo "PYTHONPATH set to include RF-DETR: ${PYTHONPATH}"
+
 # Debug: Check GPU availability
 echo "Checking GPU availability..."
 echo "CUDA_VISIBLE_DEVICES: $CUDA_VISIBLE_DEVICES"
