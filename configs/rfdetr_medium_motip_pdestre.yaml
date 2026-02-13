@@ -85,6 +85,7 @@ MOTIP:
   CONCEPT_LOSS_COEF: 0.5
 
 # --- Training Strategies ---
+EPOCHS: 10                         # Total training epochs
 BATCH_SIZE: 2                      # Increase if GPU memory allows
 LR: 1.0e-4                         # Learning rate
 LR_BACKBONE_SCALE: 0.1             # Lower LR for backbone
