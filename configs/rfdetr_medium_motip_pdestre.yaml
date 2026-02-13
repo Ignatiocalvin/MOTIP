@@ -97,6 +97,15 @@ MAX_CLIP_NORM: 0.1
 # Disable DeformableDETR pretrain loading (RF-DETR uses its own weights)
 DETR_PRETRAIN: null
 
+# --- Checkpoint & Resume Settings ---
+# To resume from a specific checkpoint, set RESUME_MODEL to the checkpoint path
+# Example: RESUME_MODEL: ./outputs/rfdetr_motip_pdestre_fold_0/checkpoint_0.pth
+RESUME_MODEL: null                 # Will auto-detect latest checkpoint if USE_PREVIOUS_CHECKPOINT is True
+USE_PREVIOUS_CHECKPOINT: True      # Auto-resume from latest checkpoint in outputs directory
+RESUME_OPTIMIZER: True             # Resume optimizer state
+RESUME_SCHEDULER: True             # Resume scheduler state
+RESUME_STATES: True                # Resume training states (epoch, step, etc.)
+
 # --- Evaluation Settings ---
 # These can be overridden during evaluation
 SUBMIT_MODEL: best                 # Use best checkpoint for submission

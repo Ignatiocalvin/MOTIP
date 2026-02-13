@@ -81,6 +81,28 @@ def train_engine(config: dict):
     outputs_dir = config["OUTPUTS_DIR"] if config["OUTPUTS_DIR"] is not None \
         else os.path.join("./outputs/", config["EXP_NAME"])
 
+    # Auto-detect latest checkpoint if USE_PREVIOUS_CHECKPOINT is enabled
+    if config.get("USE_PREVIOUS_CHECKPOINT", False) and config["RESUME_MODEL"] is None:
+        # Look for checkpoints in the output directory
+        import glob
+        checkpoint_pattern = os.path.join(outputs_dir, "checkpoint_*.pth")
+        checkpoints = glob.glob(checkpoint_pattern)
+        if checkpoints:
+            # Extract epoch numbers and find the latest
+            epoch_numbers = []
+            for ckpt in checkpoints:
+                try:
+                    # Extract epoch number from checkpoint_N.pth
+                    epoch_num = int(os.path.basename(ckpt).replace("checkpoint_", "").replace(".pth", ""))
+                    epoch_numbers.append((epoch_num, ckpt))
+                except ValueError:
+                    continue
+            if epoch_numbers:
+                # Sort by epoch number and get the latest
+                latest_checkpoint = max(epoch_numbers, key=lambda x: x[0])[1]
+                config["RESUME_MODEL"] = latest_checkpoint
+                print(f"[INFO] Auto-resuming from latest checkpoint: {latest_checkpoint}")
+
     # Init Accelerator at beginning:
     accelerator = Accelerator()
     state = PartialState()
