@@ -905,6 +905,20 @@ def prepare_for_motip(detr_outputs, annotations, detr_indices):
     _G, _, _N = annotations[0][0]["trajectory_id_labels"].shape
     _device = detr_outputs["pred_logits"].device
     _feature_dim = detr_outputs["outputs"].shape[-1]
+    
+    # Check if we have concept predictions from DETR
+    has_concepts = "pred_concepts" in detr_outputs and detr_outputs["pred_concepts"] is not None
+    if has_concepts:
+        pred_concepts_list = detr_outputs["pred_concepts"]
+        if isinstance(pred_concepts_list, list):
+            _num_concepts = len(pred_concepts_list)
+        else:
+            _num_concepts = 1
+            pred_concepts_list = [pred_concepts_list]
+    else:
+        _num_concepts = 0
+        pred_concepts_list = []
+    
     # Init corresponding variables:
     trajectory_id_labels = - torch.ones((_B, _G, _T, _N), dtype=torch.int64, device=_device)
     trajectory_times = - torch.ones((_B, _G, _T, _N), dtype=torch.int64, device=_device)
@@ -916,14 +930,31 @@ def prepare_for_motip(detr_outputs, annotations, detr_indices):
     unknown_masks = torch.ones((_B, _G, _T, _N), dtype=torch.bool, device=_device)
     unknown_boxes = torch.zeros((_B, _G, _T, _N, 4), dtype=torch.float32, device=_device)
     unknown_features = torch.zeros((_B, _G, _T, _N, _feature_dim), dtype=torch.float32, device=_device)
+    
+    # Initialize concept tensors if concepts are available
+    if _num_concepts > 0:
+        trajectory_concepts = torch.zeros((_B, _G, _T, _N, _num_concepts), dtype=torch.int64, device=_device)
+        unknown_concepts = torch.zeros((_B, _G, _T, _N, _num_concepts), dtype=torch.int64, device=_device)
+    
     for b in range(_B):
         for t in range(_T):
             flatten_idx = b * _T + t
             go_back_detr_idxs = torch.argsort(detr_indices[flatten_idx][1])
             detr_output_embeds = detr_outputs["outputs"][flatten_idx][detr_indices[flatten_idx][0][go_back_detr_idxs]]
             detr_boxes = detr_outputs["pred_boxes"][flatten_idx][detr_indices[flatten_idx][0][go_back_detr_idxs]]
-            # detr_output_embeds = einops.repeat(detr_output_embeds, "n d -> g n d", g=_G)
-            # detr_boxes = einops.repeat(detr_boxes, "n d -> g n d", g=_G)
+            
+            # Get concept predictions for matched detections
+            if _num_concepts > 0:
+                # For each concept, get the predicted class (argmax) for matched detections
+                detr_concepts = []
+                for concept_idx in range(_num_concepts):
+                    concept_logits = pred_concepts_list[concept_idx][flatten_idx]  # (N_queries, n_classes)
+                    concept_preds = concept_logits.argmax(dim=-1)  # (N_queries,)
+                    matched_concept_preds = concept_preds[detr_indices[flatten_idx][0][go_back_detr_idxs]]
+                    detr_concepts.append(matched_concept_preds)
+                # Stack to (N_matched, num_concepts)
+                detr_concepts = torch.stack(detr_concepts, dim=-1)
+            
             for group in range(_G):
                 _curr_traj_ann_idxs = annotations[b][t]["trajectory_ann_idxs"][group, 0, :]
                 _curr_unk_ann_idxs = annotations[b][t]["unknown_ann_idxs"][group, 0, :]
@@ -940,9 +971,15 @@ def prepare_for_motip(detr_outputs, annotations, detr_indices):
                 unknown_features[b, group, t, ~_curr_unk_masks] = detr_output_embeds[_curr_unk_ann_idxs[~_curr_unk_masks]]
                 trajectory_boxes[b, group, t, ~_curr_traj_masks] = detr_boxes[_curr_traj_ann_idxs[~_curr_traj_masks]]
                 unknown_boxes[b, group, t, ~_curr_unk_masks] = detr_boxes[_curr_unk_ann_idxs[~_curr_unk_masks]]
+                
+                # Fill concept data if available
+                if _num_concepts > 0:
+                    trajectory_concepts[b, group, t, ~_curr_traj_masks] = detr_concepts[_curr_traj_ann_idxs[~_curr_traj_masks]]
+                    unknown_concepts[b, group, t, ~_curr_unk_masks] = detr_concepts[_curr_unk_ann_idxs[~_curr_unk_masks]]
                 pass
             pass
-    return {
+    
+    result = {
         "trajectory_id_labels": trajectory_id_labels,
         "trajectory_times": trajectory_times,
         "trajectory_masks": trajectory_masks,
@@ -954,6 +991,13 @@ def prepare_for_motip(detr_outputs, annotations, detr_indices):
         "unknown_boxes": unknown_boxes,
         "unknown_features": unknown_features,
     }
+    
+    # Add concepts to result if available
+    if _num_concepts > 0:
+        result["trajectory_concepts"] = trajectory_concepts
+        result["unknown_concepts"] = unknown_concepts
+    
+    return result
 
 
 if __name__ == '__main__':

@@ -1,0 +1,49 @@
+# Config for comparing concept-based ID prediction vs baseline
+# This config MATCHES the previous fold training settings EXACTLY
+# but ADDS CONCEPT_DIM to enable concept embeddings in IDDecoder
+#
+# Previous training (fold_0-3): concepts predicted but NOT used for ID
+# This training: concepts predicted AND used for ID prediction
+#
+# To compare fairly, all other parameters match fold_0 config
+
+SUPER_CONFIG_PATH: ./configs/r50_deformable_detr_motip_dancetrack.yaml
+
+# --- Data Settings (SAME as fold training) ---
+DATASETS: [P-DESTRE]
+DATASET_SPLITS: [Train_1]  # Use same split as fold_0 for comparison
+INFERENCE_DATASET: P-DESTRE
+INFERENCE_SPLIT: val_1
+
+# --- Sample settings (SAME as fold training) ---
+SAMPLE_STEPS: [0, ]
+SAMPLE_LENGTHS: [15, ]
+SAMPLE_INTERVALS: [4, ]
+
+# --- Model & Loss Settings ---
+# SAME 2 concepts as previous training (gender, upper_body)
+# NEW: CONCEPT_DIM enables concept embeddings in IDDecoder
+MOTIP:
+  N_CONCEPTS: 2  # SAME as fold training
+  CONCEPT_DIM: 64  # NEW: This enables concept-based ID prediction!
+  # CONCEPT_CLASSES: list of [name, n_classes, unknown_label_index]
+  # SAME as previous fold training
+  CONCEPT_CLASSES:
+    - ["gender", 3, 2]           # 0=Male, 1=Female, 2=Unknown
+    - ["upper_body", 13, 12]     # 0=T-Shirt, 1=Blouse, ..., 12=Unknown
+  DETR_LOSSES: [labels, boxes, cardinality, concepts]
+  CONCEPT_LOSS_COEF: 0.5
+
+# --- Training settings (SAME as fold training) ---
+EPOCHS: 3  # SAME as fold training
+NUM_WORKERS: 5  # SAME as fold training
+PREFETCH_FACTOR: 4
+
+# --- Intra-epoch checkpointing ---
+SAVE_CHECKPOINT_EVERY_N_STEPS: 5000
+RESUME_FROM_STEP: 0
+
+# --- Outputs ---
+EXP_NAME: r50_motip_pdestre_concepts_for_id_fold_1
+SAVE_CHECKPOINT_PER_EPOCH: 1
+MULTI_LAST_CHECKPOINTS: 4

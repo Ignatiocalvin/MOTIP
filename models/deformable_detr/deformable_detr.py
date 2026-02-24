@@ -318,7 +318,7 @@ class SetCriterion(nn.Module):
             losses: list of all the losses to be applied. See get_loss for list of available losses.
             focal_alpha: alpha in Focal Loss
             num_concepts: legacy - number of concept classes (for single concept)
-            concept_classes: list of (name, num_classes, unknown_label) for each concept
+            concept_classes: list of (name, n_classes, unknown_label) for each concept
                             e.g., [("gender", 3, 2), ("upper_body", 13, 12)]
         """
         super().__init__()
@@ -637,7 +637,7 @@ class SetCriterion(nn.Module):
         total_targets = target_concepts.shape[0]
         
         # Log each concept's accuracy
-        for concept_idx, (concept_name, n_classes, unknown_label) in enumerate(self.concept_classes):
+        for concept_idx, (concept_name, _, unknown_label) in enumerate(self.concept_classes):
             if concept_idx >= len(src_concept_logits) or concept_idx >= target_concepts.shape[1]:
                 continue
                 
@@ -864,7 +864,7 @@ def build(args):
     num_classes = args.num_classes
     num_concepts = getattr(args, 'num_concepts', 0)
     
-    # Multi-concept support: concept_classes is a list of (name, num_classes, unknown_label)
+    # Multi-concept support: concept_classes is a list of (name, n_classes, unknown_label)
     # e.g., [("gender", 3, 2), ("upper_body", 13, 12)]
     concept_classes = getattr(args, 'concept_classes', None)
     

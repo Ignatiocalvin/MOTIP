@@ -13,15 +13,16 @@ INFERENCE_SPLIT: val_3
 # --- CRITICAL: Sample settings to control training data density ---
 # Original: SAMPLE_INTERVALS: [4] -> ~97,000 iterations per epoch
 # Fast option: SAMPLE_INTERVALS: [15] -> ~26,000 iterations (3.7x faster but less data)
-# Current: Using [4] for thorough learning with corrected bbox format
+# Current: Using [8] for faster training while maintaining reasonable coverage
 SAMPLE_STEPS: [0, ]
-SAMPLE_LENGTHS: [15, ]
-SAMPLE_INTERVALS: [4, ]  # Every 4th frame - good balance of speed and learning
+SAMPLE_LENGTHS: [5, ]
+SAMPLE_INTERVALS: [8, ]  # Every 8th frame - 2x faster than [4]
 
 # --- Model & Loss Settings (MOTIP with Multiple Concepts) ---
 MOTIP:
   N_CONCEPTS: 7  # Number of concept types
-  # CONCEPT_CLASSES: list of [name, num_classes, unknown_label_index]
+  CONCEPT_DIM: 64  # Dimension of concept embeddings for ID prediction (feature_dim + concept_dim + id_dim must be divisible by HEAD_DIM)
+  # CONCEPT_CLASSES: list of [name, n_classes, unknown_label_index]
   # Column positions: gender=10, hairstyle=16, head_accessories=20, upper_body=21, lower_body=22, feet=23, accessories=24
   CONCEPT_CLASSES:
     - ["gender", 3, 2]           # 0=Male, 1=Female, 2=Unknown
@@ -36,7 +37,7 @@ MOTIP:
 
 # --- Training optimizations ---
 EPOCHS: 30  # Increased from 3 - detection models need more training
-NUM_WORKERS: 5              # Increased from 2 for better data loading
+NUM_WORKERS: 8              # Match cpus-per-task for optimal data loading
 PREFETCH_FACTOR: 4          # Increased prefetch
 
 # --- Intra-epoch checkpointing (DISABLED to save memory) ---

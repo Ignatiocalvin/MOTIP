@@ -3,7 +3,7 @@
 import torch
 import einops
 import torch.nn as nn
-from typing import Tuple
+from typing import Tuple, List, Optional
 from torch.utils.checkpoint import checkpoint
 
 from models.misc import _get_clones, label_to_one_hot
@@ -22,6 +22,9 @@ class IDDecoder(nn.Module):
             rel_pe_length: int,
             use_aux_loss: bool,
             use_shared_aux_head: bool,
+            # Concept integration parameters
+            concept_classes: Optional[List[tuple]] = None,  # [(name, n_classes, unknown_label), ...]
+            concept_dim: int = 0,  # Dimension of concept embeddings (0 = disabled)
     ):
         super().__init__()
 
@@ -30,13 +33,32 @@ class IDDecoder(nn.Module):
         self.ffn_dim_ratio = ffn_dim_ratio
         self.num_layers = num_layers
         self.head_dim = head_dim
-        self.n_heads = (self.feature_dim + self.id_dim) // self.head_dim
         self.num_id_vocabulary = num_id_vocabulary
         self.rel_pe_length = rel_pe_length
 
         self.use_aux_loss = use_aux_loss
         self.use_shared_aux_head = use_shared_aux_head
-
+        
+        # Concept integration setup
+        self.concept_classes = concept_classes if concept_classes else []
+        self.num_concepts = len(self.concept_classes)
+        self.concept_dim = concept_dim if self.num_concepts > 0 else 0
+        
+        # Total embedding dimension: features + concepts + id
+        self.total_embed_dim = self.feature_dim + self.concept_dim + self.id_dim
+        self.n_heads = self.total_embed_dim // self.head_dim
+        
+        # Concept embedding layers: convert one-hot concept labels to embeddings
+        if self.num_concepts > 0 and self.concept_dim > 0:
+            # Calculate total input size for concept embedding
+            # Each concept is represented as one-hot, so sum all concept class counts
+            total_concept_classes = sum(n_classes for _, n_classes, _ in self.concept_classes)
+            self.concept_to_embed = nn.Linear(total_concept_classes, self.concept_dim, bias=False)
+            # Store class counts for one-hot encoding
+            self.concept_class_counts = [n_classes for _, n_classes, _ in self.concept_classes]
+        else:
+            self.concept_to_embed = None
+            self.concept_class_counts = []
 
         self.word_to_embed = nn.Linear(self.num_id_vocabulary + 1, self.id_dim, bias=False)
         # Purpose: Converts discrete ID labels into continuous embeddings
@@ -89,31 +111,31 @@ class IDDecoder(nn.Module):
         
         # Purpose: Allows unknown objects in the same frame to communicate with each other
         self_attn = nn.MultiheadAttention(
-            embed_dim=self.feature_dim + self.id_dim,
+            embed_dim=self.total_embed_dim,  # Now includes concept_dim
             num_heads=self.n_heads,
             dropout=0.0,
             batch_first=True,
             add_zero_attn=True,
         )
-        self_attn_norm = nn.LayerNorm(self.feature_dim + self.id_dim)
+        self_attn_norm = nn.LayerNorm(self.total_embed_dim)
 
         # Purpose: Allows unknown objects to attend to trajectory history for ID prediction
         cross_attn = nn.MultiheadAttention(
-            embed_dim=self.feature_dim + self.id_dim,
+            embed_dim=self.total_embed_dim,  # Now includes concept_dim
             num_heads=self.n_heads,
             dropout=0.0,
             batch_first=True,
             add_zero_attn=True,
         )
-        cross_attn_norm = nn.LayerNorm(self.feature_dim + self.id_dim)
+        cross_attn_norm = nn.LayerNorm(self.total_embed_dim)
 
         # Purpose: Non-linear processing after attention mechanisms
         ffn = FFN(
-            d_model=self.feature_dim + self.id_dim,
-            d_ffn=(self.feature_dim + self.id_dim) * self.ffn_dim_ratio,
+            d_model=self.total_embed_dim,  # Now includes concept_dim
+            d_ffn=self.total_embed_dim * self.ffn_dim_ratio,
             activation=nn.GELU(),
         )
-        ffn_norm = nn.LayerNorm(self.feature_dim + self.id_dim)
+        ffn_norm = nn.LayerNorm(self.total_embed_dim)
 
         # Notice the different numbers of layers:
             # Self-attention: num_layers - 1 (e.g., if 3 layers total → 2 self-attention layers)
@@ -172,11 +194,41 @@ class IDDecoder(nn.Module):
         _B, _G, _T, _N, _ = trajectory_features.shape
         _curr_B, _curr_G, _curr_T, _curr_N, _ = unknown_features.shape
 
+        # Get ID embeddings
         trajectory_id_embeds = self.id_label_to_embed(id_labels=trajectory_id_labels)
         unknown_id_embeds = self.generate_empty_id_embed(unknown_features=unknown_features)
-
-        trajectory_embeds = torch.cat([trajectory_features, trajectory_id_embeds], dim=-1)
-        unknown_embeds = torch.cat([unknown_features, unknown_id_embeds], dim=-1)
+        
+        # Get concept embeddings if enabled
+        if self.num_concepts > 0 and self.concept_dim > 0:
+            # Concepts are in seq_info as (B, G, T, N, num_concepts) integer labels
+            trajectory_concepts = seq_info.get("trajectory_concepts", None)
+            unknown_concepts = seq_info.get("unknown_concepts", None)
+            
+            if trajectory_concepts is not None:
+                trajectory_concept_embeds = self.concept_labels_to_embed(trajectory_concepts)
+            else:
+                # Generate zero concept embeddings if not provided (fallback)
+                trajectory_concept_embeds = torch.zeros(
+                    (*trajectory_features.shape[:-1], self.concept_dim),
+                    dtype=trajectory_features.dtype, device=trajectory_features.device
+                )
+            
+            if unknown_concepts is not None:
+                unknown_concept_embeds = self.concept_labels_to_embed(unknown_concepts)
+            else:
+                # Generate zero concept embeddings if not provided (fallback)
+                unknown_concept_embeds = torch.zeros(
+                    (*unknown_features.shape[:-1], self.concept_dim),
+                    dtype=unknown_features.dtype, device=unknown_features.device
+                )
+            
+            # Concatenate: [features, concept_embeds, id_embeds]
+            trajectory_embeds = torch.cat([trajectory_features, trajectory_concept_embeds, trajectory_id_embeds], dim=-1)
+            unknown_embeds = torch.cat([unknown_features, unknown_concept_embeds, unknown_id_embeds], dim=-1)
+        else:
+            # Original behavior: [features, id_embeds]
+            trajectory_embeds = torch.cat([trajectory_features, trajectory_id_embeds], dim=-1)
+            unknown_embeds = torch.cat([unknown_features, unknown_id_embeds], dim=-1)
 
         # Prepare some common variables:
         self_attn_key_padding_mask = einops.rearrange(unknown_masks, "b g t n -> (b g t) n").contiguous()
@@ -300,6 +352,43 @@ class IDDecoder(nn.Module):
         id_words = label_to_one_hot(id_labels, self.num_id_vocabulary + 1, dtype=self.dtype)
         id_embeds = self.word_to_embed(id_words)
         return id_embeds
+
+    def concept_labels_to_embed(self, concept_labels):
+        """
+        Convert concept labels to embeddings.
+        
+        Args:
+            concept_labels: Tensor of shape (..., num_concepts) containing integer class labels
+                           for each concept (e.g., gender=0, upper_body=5)
+        
+        Returns:
+            Tensor of shape (..., concept_dim) containing the concept embeddings
+        """
+        if self.concept_to_embed is None or self.num_concepts == 0:
+            raise ValueError("Concept embedding is not enabled in this IDDecoder")
+        
+        # Get original shape (without the concept dimension)
+        original_shape = concept_labels.shape[:-1]
+        device = concept_labels.device
+        
+        # Convert each concept to one-hot and concatenate
+        one_hot_concepts = []
+        for i, n_classes in enumerate(self.concept_class_counts):
+            # Get the label for this concept
+            labels_i = concept_labels[..., i]
+            # Clamp to valid range (handle unknown labels that might exceed n_classes)
+            labels_i = labels_i.clamp(0, n_classes - 1)
+            # Convert to one-hot
+            one_hot = torch.nn.functional.one_hot(labels_i, num_classes=n_classes)
+            one_hot_concepts.append(one_hot.to(self.dtype))
+        
+        # Concatenate all one-hot vectors: (..., total_concept_classes)
+        concept_one_hot = torch.cat(one_hot_concepts, dim=-1)
+        
+        # Project to concept embedding space: (..., concept_dim)
+        concept_embeds = self.concept_to_embed(concept_one_hot)
+        
+        return concept_embeds
 
     def generate_empty_id_embed(self, unknown_features):
         _shape = unknown_features.shape[:-1]

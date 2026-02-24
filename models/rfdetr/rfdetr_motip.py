@@ -94,7 +94,7 @@ class RFDETR_MOTIP(nn.Module):
             num_classes: Number of object classes (typically 1 for person tracking)
             num_queries: Number of object queries
             num_concepts: Number of concept types (deprecated, use concept_classes)
-            concept_classes: List of (name, num_classes, unknown_label) tuples for each concept
+            concept_classes: List of (name, n_classes, unknown_label) tuples for each concept
             aux_loss: Whether to use auxiliary decoding losses
             group_detr: Number of groups for accelerated training
             two_stage: Use two-stage detection
@@ -443,7 +443,7 @@ def build(args):
     concept_classes = None
     num_concepts = 0
     if hasattr(args, 'concept_classes') and args.concept_classes is not None:
-        # concept_classes is list of (name, num_classes, unknown_label)
+        # concept_classes is list of (name, n_classes, unknown_label)
         concept_classes = [c[1] for c in args.concept_classes]  # Extract num_classes
         num_concepts = len(concept_classes)
     elif hasattr(args, 'num_concepts') and args.num_concepts > 0:

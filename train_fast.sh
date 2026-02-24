@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
-#SBATCH --job-name=motip_fixed_fold_3
-#SBATCH --partition=gpu_h100
+#SBATCH --job-name=motip_concepts_id
+#SBATCH --partition=gpu_a100_short
 #SBATCH --gres=gpu:1
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=8
-#SBATCH --time=72:00:00
+#SBATCH --time=00:30:00
 #SBATCH --mem=16G
-#SBATCH --output=logs/motip_fixed_fold_3_%j.out
-#SBATCH --error=logs/motip_fixed_fold_3_%j.err
+#SBATCH --output=logs/motip_concepts_%j.out
+#SBATCH --error=logs/motip_concepts_%j.err
 
 # ========================================
 # Setup logging for non-sbatch execution
@@ -22,7 +22,8 @@ if [ -z "$SLURM_JOB_ID" ]; then
 fi
 
 echo "=========================================="
-echo "MOTIP Fixed Training Script - Fold 3"
+echo "MOTIP Training: Concepts for ID Prediction"
+echo "Comparison Experiment"
 echo "Started at $(date)"
 echo "Node: $(hostname)"
 echo "========================================="
@@ -92,23 +93,42 @@ fi
 #      --resume-from-step ${RESUME_STEP}
 
 # ========================================
-# Run fast training (fresh start)
+# Run training with concept integration for ID
 # ========================================
-echo "Starting training with FIXED bbox format and 7 concepts..."
-echo "Training fold 3 from scratch with corrected annotations"
-echo "Expected: 30 epochs, ~24 hours per epoch"
-echo "Intra-epoch checkpoints saved every 5000 steps"
+echo ""
+echo "COMPARISON EXPERIMENT:"
+echo "  Baseline (fold_0-3): 2 concepts predicted, NOT used for ID"
+echo "  This run: 2 concepts predicted AND used for ID prediction"
+echo ""
+echo "Settings matched to fold training:"
+echo "  - 2 concepts: gender, upper_body"
+echo "  - SAMPLE_LENGTHS: [15], SAMPLE_INTERVALS: [4]"
+echo "  - EPOCHS: 3"
+echo "  - Train_1 split (same as fold_0)"
+echo ""
+echo "NEW: CONCEPT_DIM=64 enables concept embeddings in IDDecoder"
+echo "  total_embed_dim = 256 (features) + 64 (concepts) + 256 (id) = 576"
+echo ""
+echo "Config: r50_deformable_detr_motip_pdestre_concepts_for_id.yaml"
+echo ""
 
 accelerate launch --num_processes=1 train.py \
     --data-root ./data/ \
-    --exp-name r50_motip_pdestre_fixed_fold_3 \
-    --config-path ./configs/r50_deformable_detr_motip_pdestre_fast.yaml
+    --exp-name r50_motip_pdestre_concepts_for_id_fold_1 \
+    --config-path ./configs/r50_deformable_detr_motip_pdestre_concepts_for_id.yaml
 
 echo "Finished at $(date)"
-# Testing with Deformable DETR + MOTIP fast model
-# first run - batch 2879446 (outputs: r50_motip_pdestre_fast_first)
-# second run - batch 2912323 (outputs: r50_motip_pdestre_fast_second)
-# third run - batch 2945733 (outputs: r50_motip_pdestre_fast) This should work! Fixed errors of the second run
+echo ""
+echo "=========================================="
+echo "COMPARISON:"
+echo "  Baseline: outputs/r50_motip_pdestre_fold_0/"
+echo "  This run: outputs/r50_motip_pdestre_concepts_for_id_fold_1/"
+echo ""
+echo "After training, compare:"
+echo "  1. HOTA, MOTA, IDF1 metrics (tracking quality)"
+echo "  2. ID switches (should be lower with concepts)"
+echo "  3. Concept accuracy (should be similar)"
+echo "=========================================="
 
 
 

@@ -129,7 +129,7 @@ def build(config: dict):
         detr_args.num_concepts = config["MOTIP"]["N_CONCEPTS"]
         detr_args.concept_loss_coef = config["MOTIP"]["CONCEPT_LOSS_COEF"]
         detr_args.losses = config["MOTIP"]["DETR_LOSSES"]
-        # Multi-concept support: CONCEPT_CLASSES is a list of (name, num_classes, unknown_label)
+        # Multi-concept support: CONCEPT_CLASSES is a list of (name, n_classes, unknown_label)
         # e.g., [["gender", 3, 2], ["upper_body", 13, 12]]
         if "CONCEPT_CLASSES" in config["MOTIP"]:
             # Convert from list of lists to list of tuples
@@ -167,6 +167,14 @@ def build(config: dict):
         feature_dim=config["FEATURE_DIM"],
     ) if config["ONLY_DETR"] is False else None
     # 2. ID decoder:
+    # Get concept configuration for ID decoder
+    concept_classes = None
+    concept_dim = 0
+    if "MOTIP" in config and "CONCEPT_CLASSES" in config["MOTIP"]:
+        concept_classes = [tuple(c) for c in config["MOTIP"]["CONCEPT_CLASSES"]]
+        # Use CONCEPT_DIM from config, default to 64 if concepts are enabled
+        concept_dim = config["MOTIP"].get("CONCEPT_DIM", 64)
+    
     _id_decoder = IDDecoder(
         feature_dim=config["FEATURE_DIM"],
         id_dim=config["ID_DIM"],
@@ -177,6 +185,9 @@ def build(config: dict):
         rel_pe_length=config["REL_PE_LENGTH"],
         use_aux_loss=config["USE_AUX_LOSS"],
         use_shared_aux_head=config["USE_SHARED_AUX_HEAD"],
+        # Concept integration parameters
+        concept_classes=concept_classes,
+        concept_dim=concept_dim,
     ) if config["ONLY_DETR"] is False else None
 
     # Construct MOTIP model:
