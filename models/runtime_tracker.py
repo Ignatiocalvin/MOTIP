@@ -27,11 +27,18 @@ class RuntimeTracker:
             area_thresh: int = 0,
             only_detr: bool = False,
             dtype: torch.dtype = torch.float32,
+            # Concept bottleneck mode: "hard" or "soft"
+            concept_bottleneck_mode: str = "hard",
     ):
         self.model = model
         self.model.eval()
 
         self.dtype = dtype
+        
+        # Concept bottleneck mode
+        self.concept_bottleneck_mode = concept_bottleneck_mode.lower()
+        if self.concept_bottleneck_mode not in ["hard", "soft"]:
+            raise ValueError(f"concept_bottleneck_mode must be 'hard' or 'soft', got '{concept_bottleneck_mode}'")
 
         # For FP16:
         if self.dtype != torch.float32:
@@ -49,6 +56,13 @@ class RuntimeTracker:
         self.area_thresh = area_thresh
         self.only_detr = only_detr
         self.num_id_vocabulary = get_model(model).num_id_vocabulary
+        
+        # Get feature_dim from trajectory_modeling (handles both deformable-detr and rf-detr)
+        actual_model = get_model(model)
+        if hasattr(actual_model, 'trajectory_modeling') and actual_model.trajectory_modeling is not None:
+            self.feature_dim = actual_model.trajectory_modeling.feature_dim
+        else:
+            self.feature_dim = 256  # Default fallback
 
         # Check for the legality of settings:
         assert self.assignment_protocol in ["hungarian", "id-max", "object-max", "object-priority", "id-priority"], \
@@ -69,7 +83,7 @@ class RuntimeTracker:
             self.id_queue.add(i)
         # All fields are in shape (T, N, ...)
         self.trajectory_features = torch.zeros(
-            (0, 0, 256), dtype=dtype, device=distributed_device(),
+            (0, 0, self.feature_dim), dtype=dtype, device=distributed_device(),
         )
         self.trajectory_boxes = torch.zeros(
             (0, 0, 4), dtype=dtype, device=distributed_device(),
@@ -83,9 +97,12 @@ class RuntimeTracker:
         self.trajectory_masks = torch.zeros(
             (0, 0), dtype=torch.bool, device=distributed_device(),
         )
-        # Trajectory concepts: (T, N, num_concepts) - stores predicted concept labels
+        # Trajectory concepts: 
+        # - "hard" mode: (T, N, num_concepts) integer labels
+        # - "soft" mode: (T, N, total_concept_classes) float probabilities
         self.trajectory_concepts = torch.zeros(
-            (0, 0, 0), dtype=torch.int64, device=distributed_device(),
+            (0, 0, 0), dtype=torch.float32 if self.concept_bottleneck_mode == "soft" else torch.int64, 
+            device=distributed_device(),
         )
         # self.trajectory_features = torch.zeros(())
 
@@ -108,11 +125,12 @@ class RuntimeTracker:
         boxes = boxes[keep_idxs]
         output_embeds = output_embeds[keep_idxs]
         id_pred_labels = id_pred_labels[keep_idxs]
-        # Handle concepts as a list of tensors (one per concept type)
-        if isinstance(concepts, list):
-            concepts = [c[keep_idxs] for c in concepts]
-        else:
-            concepts = concepts[keep_idxs]
+        # Handle concepts as a list of tensors (one per concept type) or None
+        if concepts is not None:
+            if isinstance(concepts, list):
+                concepts = [c[keep_idxs] for c in concepts]
+            else:
+                concepts = concepts[keep_idxs]
 
         # A hack implementation, before assign new id labels, update the id_queue to ensure the uniqueness of id labels:
         n_activate_id_labels = 0
@@ -137,6 +155,11 @@ class RuntimeTracker:
             boxes = boxes[keep_idxs]
             output_embeds = output_embeds[keep_idxs]
             id_pred_labels = id_pred_labels[keep_idxs]
+            # Also filter concepts
+            if isinstance(concepts, list):
+                concepts = [c[keep_idxs] for c in concepts]
+            elif concepts is not None:
+                concepts = concepts[keep_idxs]
         pass
 
         # Assign new id labels:
@@ -147,18 +170,30 @@ class RuntimeTracker:
             exit(-1)
 
         # Convert concepts list to a format suitable for per-object iteration
-        # If concepts is a list, stack into (N_objects, N_concepts) 
-        # by taking argmax of each concept and concatenating
+        # If concepts is a list, prepare based on concept_bottleneck_mode:
+        # - "hard" mode: stack into (N_objects, N_concepts) by taking argmax of each concept
+        # - "soft" mode: concatenate probabilities into (N_objects, total_concept_classes)
         if isinstance(concepts, list) and len(concepts) > 0:
             # Check if we have any objects
             if concepts[0].shape[0] > 0:
-                # Get predicted class for each concept (argmax)
-                concept_preds = torch.stack([c.argmax(dim=-1) for c in concepts], dim=-1)  # (N_objects, N_concepts)
-                concepts_for_results = concept_preds
+                if self.concept_bottleneck_mode == "soft":
+                    # Soft mode: concatenate softmax probability distributions
+                    concept_probs = [torch.softmax(c, dim=-1) for c in concepts]
+                    concepts_for_results = torch.cat(concept_probs, dim=-1)  # (N_objects, total_concept_classes)
+                else:
+                    # Hard mode: get predicted class for each concept (argmax)
+                    concept_preds = torch.stack([c.argmax(dim=-1) for c in concepts], dim=-1)  # (N_objects, N_concepts)
+                    concepts_for_results = concept_preds
             else:
                 # No objects, create empty tensor with correct shape
-                n_concepts = len(concepts)
-                concepts_for_results = torch.empty((0, n_concepts), dtype=torch.int64, device=concepts[0].device)
+                if self.concept_bottleneck_mode == "soft":
+                    # Soft mode: total_concept_classes dimension
+                    total_classes = sum(c.shape[-1] for c in concepts)
+                    concepts_for_results = torch.empty((0, total_classes), dtype=torch.float32, device=concepts[0].device)
+                else:
+                    # Hard mode: N_concepts dimension
+                    n_concepts = len(concepts)
+                    concepts_for_results = torch.empty((0, n_concepts), dtype=torch.int64, device=concepts[0].device)
         elif concepts is not None:
             concepts_for_results = concepts
         else:
@@ -195,7 +230,8 @@ class RuntimeTracker:
         logits = detr_out["pred_logits"][0]
         boxes = detr_out["pred_boxes"][0]
         output_embeds = detr_out["outputs"][0]
-        pred_concepts = detr_out["pred_concepts"]
+        # Handle case when model has no concepts (N_CONCEPTS = 0)
+        pred_concepts = detr_out.get("pred_concepts", None)
         scores = logits.sigmoid()
         scores, categories = torch.max(scores, dim=-1)
         area = boxes[:, 2] * self.bbox_unnorm[2] * boxes[:, 3] * self.bbox_unnorm[3]
@@ -206,8 +242,10 @@ class RuntimeTracker:
         output_embeds = output_embeds[activate_indices]
         scores = scores[activate_indices]
         categories = categories[activate_indices]
-        # Handle pred_concepts as a list of tensors (one per concept type)
-        if isinstance(pred_concepts, list):
+        # Handle pred_concepts - can be None when N_CONCEPTS = 0
+        if pred_concepts is None:
+            concepts = None
+        elif isinstance(pred_concepts, list):
             # Each tensor in list is (B, N_queries, n_classes) or (N_queries, n_classes)
             concepts = [c[0][activate_indices] if c.dim() == 3 else c[activate_indices] for c in pred_concepts]
         else:
@@ -229,11 +267,17 @@ class RuntimeTracker:
             
             # Prepare current concepts if available
             if concepts is not None and isinstance(concepts, list) and len(concepts) > 0:
-                # concepts is a list of (N, n_classes) tensors - get argmax for each
-                current_concept_labels = torch.stack([c.argmax(dim=-1) for c in concepts], dim=-1)  # (N, num_concepts)
-                current_concept_labels = current_concept_labels[None, ...]  # (1, N, num_concepts)
+                if self.concept_bottleneck_mode == "soft":
+                    # Soft mode: concatenate softmax probability distributions
+                    concept_probs = [torch.softmax(c, dim=-1) for c in concepts]  # list of (N, n_classes_i)
+                    current_concept_data = torch.cat(concept_probs, dim=-1)  # (N, total_concept_classes)
+                    current_concept_data = current_concept_data[None, ...]  # (1, N, total_concept_classes)
+                else:
+                    # Hard mode: get argmax labels for each concept
+                    current_concept_data = torch.stack([c.argmax(dim=-1) for c in concepts], dim=-1)  # (N, num_concepts)
+                    current_concept_data = current_concept_data[None, ...]  # (1, N, num_concepts)
             else:
-                current_concept_labels = None
+                current_concept_data = None
             
             # 2. prepare seq_info:
             seq_info = {
@@ -251,8 +295,8 @@ class RuntimeTracker:
             # Add concept data to seq_info if available
             if self.trajectory_concepts.shape[-1] > 0:
                 seq_info["trajectory_concepts"] = self.trajectory_concepts[None, None, ...]
-            if current_concept_labels is not None:
-                seq_info["unknown_concepts"] = current_concept_labels[None, None, ...]
+            if current_concept_data is not None:
+                seq_info["unknown_concepts"] = current_concept_data[None, None, ...]
             
             # 3. forward:
             seq_info = self.model(seq_info=seq_info, part="trajectory_modeling")
@@ -300,6 +344,8 @@ class RuntimeTracker:
             self.trajectory_id_labels = self.trajectory_id_labels[:, ~trajectory_remove_idxs]
             self.trajectory_times = self.trajectory_times[:, ~trajectory_remove_idxs]
             self.trajectory_masks = self.trajectory_masks[:, ~trajectory_remove_idxs]
+            if self.trajectory_concepts.shape[-1] > 0:
+                self.trajectory_concepts = self.trajectory_concepts[:, ~trajectory_remove_idxs]
             # 4. assign id labels to newborn instances:
             pred_id_labels[pred_id_labels == self.num_id_vocabulary] = newborn_id_labels
             # 5. update id infos:
@@ -317,10 +363,12 @@ class RuntimeTracker:
             boxes: Detection boxes (N, 4)
             output_embeds: Detection embeddings (N, feature_dim)
             id_labels: Assigned ID labels (N,)
-            concepts: Concept predictions (N, num_concepts) or None
+            concepts: Concept predictions - either (N, num_concepts) int labels for hard mode
+                      or (N, total_concept_classes) float probs for soft mode
         """
-        # Determine number of concepts
-        num_concepts = concepts.shape[-1] if concepts is not None and concepts.dim() > 1 else 0
+        # Determine concept dimension and dtype based on mode
+        concept_dim = concepts.shape[-1] if concepts is not None and concepts.dim() > 1 else 0
+        concept_dtype = torch.float32 if self.concept_bottleneck_mode == "soft" else torch.int64
         
         # 1. cut trajectory infos:
         self.trajectory_features = self.trajectory_features[-self.miss_tolerance + 2:, ...]
@@ -347,7 +395,7 @@ class RuntimeTracker:
                 torch.arange(_T, dtype=torch.int64, device=distributed_device()), 't -> t n', n=_N,
             )
             _features = torch.zeros(
-                (_T, _N, 256), dtype=self.dtype, device=distributed_device(),
+                (_T, _N, self.feature_dim), dtype=self.dtype, device=distributed_device(),
             )
             _masks = torch.ones((_T, _N), dtype=torch.bool, device=distributed_device())
             # 3.1. padding to trajectory infos:
@@ -358,25 +406,25 @@ class RuntimeTracker:
             self.trajectory_masks = torch.cat([self.trajectory_masks, _masks], dim=1)
             
             # Also pad concepts if tracking them
-            if num_concepts > 0:
+            if concept_dim > 0:
                 if self.trajectory_concepts.shape[-1] == 0:
                     # Initialize trajectory_concepts with correct shape
                     self.trajectory_concepts = torch.zeros(
-                        (_T, self.trajectory_id_labels.shape[1] - _N, num_concepts),
-                        dtype=torch.int64, device=distributed_device()
+                        (_T, self.trajectory_id_labels.shape[1] - _N, concept_dim),
+                        dtype=concept_dtype, device=distributed_device()
                     )
-                _concepts_pad = torch.zeros((_T, _N, num_concepts), dtype=torch.int64, device=distributed_device())
+                _concepts_pad = torch.zeros((_T, _N, concept_dim), dtype=concept_dtype, device=distributed_device())
                 self.trajectory_concepts = torch.cat([self.trajectory_concepts, _concepts_pad], dim=1)
         
         # 4. update trajectory infos:
         _N = self.trajectory_id_labels.shape[1]
         current_id_labels = self.trajectory_id_labels[0] if self.trajectory_id_labels.shape[0] > 0 else id_labels
-        current_features = torch.zeros((_N, 256), dtype=self.dtype, device=distributed_device())
+        current_features = torch.zeros((_N, self.feature_dim), dtype=self.dtype, device=distributed_device())
         current_boxes = torch.zeros((_N, 4), dtype=self.dtype, device=distributed_device())
         current_times = self.trajectory_id_labels.shape[0] * torch.ones((_N,), dtype=torch.int64, device=distributed_device())
         current_masks = torch.ones((_N,), dtype=torch.bool, device=distributed_device())
-        if num_concepts > 0:
-            current_concepts = torch.zeros((_N, num_concepts), dtype=torch.int64, device=distributed_device())
+        if concept_dim > 0:
+            current_concepts = torch.zeros((_N, concept_dim), dtype=concept_dtype, device=distributed_device())
         
         # 4.1. find out the same id labels (matching):
         indices = torch.eq(current_id_labels[:, None], id_labels[None, :]).nonzero(as_tuple=False)
@@ -387,7 +435,7 @@ class RuntimeTracker:
         current_features[current_idxs] = output_embeds[idxs]
         current_boxes[current_idxs] = boxes[idxs]
         current_masks[current_idxs] = False
-        if num_concepts > 0 and concepts is not None:
+        if concept_dim > 0 and concepts is not None:
             current_concepts[current_idxs] = concepts[idxs]
         
         # 4.3. cat to trajectory infos:
@@ -396,10 +444,24 @@ class RuntimeTracker:
         self.trajectory_id_labels = torch.cat([self.trajectory_id_labels, current_id_labels[None, ...]], dim=0).contiguous()
         self.trajectory_times = torch.cat([self.trajectory_times, current_times[None, ...]], dim=0).contiguous()
         self.trajectory_masks = torch.cat([self.trajectory_masks, current_masks[None, ...]], dim=0).contiguous()
-        if num_concepts > 0:
+        if concept_dim > 0:
             if self.trajectory_concepts.shape[-1] == 0:
-                # First time adding concepts
-                self.trajectory_concepts = current_concepts[None, ...].contiguous()
+                # First time adding concepts - initialize with proper history
+                _T = self.trajectory_id_labels.shape[0]
+                self.trajectory_concepts = torch.zeros((_T - 1, _N, concept_dim), dtype=concept_dtype, device=distributed_device())
+                self.trajectory_concepts = torch.cat([self.trajectory_concepts, current_concepts[None, ...]], dim=0).contiguous()
+            elif self.trajectory_concepts.shape[1] != _N:
+                # Dimension mismatch - need to pad trajectory_concepts to match current trajectory count
+                _T_concepts = self.trajectory_concepts.shape[0]
+                _N_concepts = self.trajectory_concepts.shape[1]
+                if _N > _N_concepts:
+                    # Pad with zeros for new trajectories
+                    _pad = torch.zeros((_T_concepts, _N - _N_concepts, concept_dim), dtype=concept_dtype, device=distributed_device())
+                    self.trajectory_concepts = torch.cat([self.trajectory_concepts, _pad], dim=1).contiguous()
+                else:
+                    # This shouldn't happen (trajectories removed), but handle it
+                    self.trajectory_concepts = self.trajectory_concepts[:, :_N, :].contiguous()
+                self.trajectory_concepts = torch.cat([self.trajectory_concepts, current_concepts[None, ...]], dim=0).contiguous()
             else:
                 self.trajectory_concepts = torch.cat([self.trajectory_concepts, current_concepts[None, ...]], dim=0).contiguous()
         

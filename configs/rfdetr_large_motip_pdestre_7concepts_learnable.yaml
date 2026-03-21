@@ -1,0 +1,131 @@
+# RF-DETR Large MOTIP Configuration for P-DESTRE
+# 7-CONCEPT MODEL (Learnable Task Weights): All P-DESTRE semantic attributes
+# Uses uncertainty-based learnable weighting (Kendall et al. 2018)
+# For comparison with R50 7-concept learnable model
+
+SUPER_CONFIG_PATH: ./configs/r50_deformable_detr_motip_dancetrack.yaml
+
+# --- Override DETR Framework ---
+DETR_FRAMEWORK: rf_detr
+
+# --- Override old NUM_CONCEPTS (from base config) ---
+NUM_CONCEPTS: 7
+
+# --- Data Settings ---
+DATASETS: [P-DESTRE]
+DATASET_SPLITS: [Train_0]  # Will be overridden by training script
+INFERENCE_DATASET: P-DESTRE
+INFERENCE_SPLIT: val_0
+
+# --- Sampling Settings (match R50 models for fair comparison) ---
+SAMPLE_STEPS: [0, ]
+SAMPLE_LENGTHS: [15, ]
+SAMPLE_INTERVALS: [4, ]
+
+# --- RF-DETR Specific Settings ---
+RFDETR:
+  # Model size: Large (DINOv2-Large backbone)
+  ENCODER: dinov2_windowed_large
+  RESOLUTION: 588
+  HIDDEN_DIM: 1024
+  DEC_LAYERS: 6
+  PATCH_SIZE: 14
+  NUM_WINDOWS: 2
+  POSITIONAL_ENCODING_SIZE: 37
+  OUT_FEATURE_INDEXES: [3, 6, 9, 12]
+  PROJECTOR_SCALE: [P4]
+  
+  # Attention settings
+  SA_NHEADS: 16
+  CA_NHEADS: 32
+  DEC_N_POINTS: 4
+  
+  # Architecture settings
+  TWO_STAGE: True
+  LITE_REFPOINT_REFINE: True
+  BBOX_REPARAM: True
+  GROUP_DETR: 1
+  IA_BCE_LOSS: True
+  
+  # Backbone settings
+  LAYER_NORM: True
+  RMS_NORM: False
+  FREEZE_ENCODER: False
+  BACKBONE_LORA: False
+  GRADIENT_CHECKPOINTING: False
+  LOAD_DINOV2_WEIGHTS: True
+  
+  # Pretrained weights
+  PRETRAIN_WEIGHTS: ./pretrains/rf-detr-large.pth
+
+# --- Model Settings ---
+NUM_CLASSES: 1
+DETR_NUM_QUERIES: 300
+DETR_AUX_LOSS: True
+DETR_HIDDEN_DIM: 1024
+
+# --- MOTIP 7-Concept Settings with LEARNABLE Weights ---
+# Uses uncertainty-based weighting instead of fixed CONCEPT_LOSS_COEF
+MOTIP:
+  N_CONCEPTS: 7
+  CONCEPT_DIM: 224                 # Match R50: 32 per concept × 7 = 224
+  CONCEPT_BOTTLENECK_MODE: "hard"  # Match R50 7-concept model
+  CONCEPT_CLASSES:
+    - ["gender", 3, 2]             # 0=Male, 1=Female, 2=Unknown
+    - ["hairstyle", 6, 5]          # 0=Bald, 1=Short, 2=Medium, 3=Long, 4=Horse Tail, 5=Unknown
+    - ["head_accessories", 5, 4]   # 0=Hat, 1=Scarf, 2=Neckless, 3=Cannot see, 4=Unknown
+    - ["upper_body", 13, 12]       # 0=T-Shirt, ..., 12=Unknown
+    - ["lower_body", 10, 9]        # 0=Jeans, ..., 9=Unknown
+    - ["feet", 7, 6]               # 0=Sport Shoe, ..., 6=Unknown
+    - ["accessories", 8, 7]        # 0=Bag, ..., 7=Unknown
+  DETR_LOSSES: [labels, boxes, cardinality, concepts]
+  # NOTE: CONCEPT_LOSS_COEF is NOT used when USE_LEARNABLE_TASK_WEIGHTS=True
+  # The model will learn sigma_detection and sigma_concepts automatically
+
+# --- LEARNABLE TASK WEIGHTS (Kendall et al. 2018) ---
+# This enables uncertainty-based automatic loss balancing
+# Solves gradient competition between detection and concept losses
+USE_LEARNABLE_TASK_WEIGHTS: True
+
+# --- Training Settings ---
+EPOCHS: 3
+BATCH_SIZE: 1
+LR: 1.0e-4
+LR_BACKBONE_SCALE: 0.1
+LR_WARMUP_EPOCHS: 0
+WEIGHT_DECAY: 0.0005
+MAX_CLIP_NORM: 0.1
+ACCUMULATE_STEPS: 2
+
+# --- IMPORTANT: Fresh training needed for learnable weights ---
+# The optimizer structure changes when adding learnable weight parameters
+# Must NOT resume from manual checkpoint
+USE_PREVIOUS_CHECKPOINT: False
+
+# --- Disable DeformableDETR pretrain ---
+DETR_PRETRAIN: null
+
+# --- Tracking Settings ---
+NUM_WORKERS: 5
+PREFETCH_FACTOR: 4
+SIZE_DIVISIBILITY: 32
+
+# --- ID Prediction Settings ---
+NUM_ID_VOCABULARY: 1000
+ID_DIM: 256
+NUM_ID_DECODER_LAYERS: 3
+HEAD_DIM: 64
+REL_PE_LENGTH: 50
+USE_AUX_LOSS: True
+USE_SHARED_AUX_HEAD: True
+
+# --- Feature Settings ---
+FEATURE_DIM: 1024
+
+# --- Evaluation Settings ---
+EVAL_DURING_TRAIN: True
+EVAL_DURING_TRAIN_EPOCHS: [0, 1, 2]
+
+# --- Checkpoint Settings ---
+SAVE_CHECKPOINT_PER_EPOCH: 1
+MULTI_LAST_CHECKPOINTS: 4

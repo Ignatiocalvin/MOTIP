@@ -1,10 +1,25 @@
-# MOTIP with Gender Concept Prediction - Modifications
+# MOTIP with Multi-Concept Prediction and Concept Bottleneck Integration
 
-This document outlines the modifications made to the original MOTIP repository to add gender concept prediction capabilities for multi-object tracking.
+This document outlines the modifications made to the original MOTIP repository to add **multi-concept prediction** (Concept Bottleneck Model integration) and **concept-based identity prediction** for multi-object tracking.
 
 ## Overview
 
-The original MOTIP (Multi-Object Tracking with Identity Prediction) has been extended to include **gender concept prediction** alongside object tracking. This enhancement allows the model to simultaneously track objects and predict gender attributes (Male/Female/Unknown) for each tracked person.
+The original MOTIP (Multi-Object Tracking with Identity Prediction) has been extended to include:
+1. **Multi-Concept Prediction** - Predicts multiple person attributes simultaneously (gender, hairstyle, clothing, accessories)
+2. **Concept Bottleneck Integration** - Uses predicted concepts to enhance identity prediction
+3. **P-DESTRE Dataset Support** - Full integration with the P-DESTRE dataset and its annotation format
+4. **RF-DETR Integration** - Support for RF-DETR backbone (DINOv2-based) as an alternative to Deformable DETR
+
+### Supported Concepts (P-DESTRE Dataset)
+| Attributes | Classes | Unknown Label |
+|---------|---------|---------------|
+| Gender | 3 (Male, Female, Unknown) | 2 | # OK
+| Hairstyle | 6 (Bald, Short, Medium, Long, Horse Tail, Unknown) | 5 | # No
+| Head Accessories | 5 (Hat, Scarf, Neckless, Cannot see, Unknown) | 4 | # No
+| Upper Body | 13 (T-Shirt, Blouse, Sweater, Coat, ..., Unknown) | 12 | # Reasonable
+| Lower Body | 10 (Jeans, Leggins, Pants, Shorts, ..., Unknown) | 9 |  # Reasonable
+| Feet | 7 (Sport Shoe, Classic Shoe, High Heels, ..., Unknown) | 6 | # No
+| Accessories | 8 (Bag, Backpack, Rolling Bag, Umbrella, ..., Unknown) | 7 | # Unsure
 
 ## Key Modifications
 
@@ -12,421 +27,416 @@ The original MOTIP (Multi-Object Tracking with Identity Prediction) has been ext
 
 #### A. DeformableDETR Model (`models/deformable_detr/deformable_detr.py`)
 
-**New additions with specific line locations:**
-- **Lines 31-32**: Added concept parameters to `__init__`
+**Multi-Concept Prediction Architecture:**
+- **Lines 42-75**: Added multi-concept support with `concept_classes` parameter
   ```python
-  self.num_concepts = num_concepts # Number of concepts
-  if self.num_concepts > 0:
-      self.concept_embed = MLP(hidden_dim, hidden_dim, self.num_concepts, 3)
+  # concept_classes: list of class counts per concept [3, 6, 5, 13, 10, 7, 8]
+  self.concept_embeds = nn.ModuleList()  # Separate MLP head for each concept type
+  for n_classes in concept_classes:
+      self.concept_embeds.append(MLP(hidden_dim, hidden_dim, n_classes, 3))
   ```
 
-- **Lines 85-87**: Added concept bias initialization  
+- **Lines 125-133**: Concept embed bias initialization with per-concept handling
+
+- **Lines 136-160**: Concept head cloning for auxiliary losses (`with_box_refine` support)
+
+- **Lines 215-248**: Forward pass multi-concept prediction loop
   ```python
-  if self.num_concepts > 0:
-      nn.init.constant_(self.concept_embed.layers[-1].bias.data, bias_value)
+  for concept_idx, concept_embed in enumerate(self.concept_embeds):
+      outputs_concepts[concept_idx].append(concept_embed[lvl](hs[lvl]))
   ```
 
-- **Lines 99-101**: Added concept head cloning for auxiliary losses
-  ```python
-  if self.num_concepts > 0:
-      self.concept_embed = _get_clones(self.concept_embed, num_pred)
-  ```
+- **Lines 251-262**: Output dictionary with `pred_concepts` as list of per-concept predictions
 
-- **Lines 148-150**: Added concept prediction in forward loop
-  ```python
-  if self.num_concepts > 0:
-      outputs_concepts.append(self.concept_embed[lvl](hs[lvl]))
-  ```
+- **Lines 280-303**: `_set_aux_loss_multi_concept` method for auxiliary loss handling
 
-- **Lines 159-161**: Added concept output to return dictionary
-  ```python
-  if self.num_concepts > 0:
-      out['pred_concepts'] = outputs_concept[-1]
-  ```
-
-- **Lines 200-250**: **NEW `loss_concepts` method** - Complete new function
+- **Lines 408-475**: `loss_concepts` method with per-concept cross-entropy and unknown label filtering
   ```python
   def loss_concepts(self, outputs, targets, indices, num_boxes, **kwargs):
-      """Classification loss for concepts (e.g., gender)."""
-      # Filter out Unknown labels (=2) during training
-      valid_mask = (target_classes_o != 2)
-      # Compute cross-entropy only on valid predictions
-      loss_concepts = F.cross_entropy(src_logits_valid, target_classes_valid)
+      """Multi-concept classification loss with per-concept unknown filtering."""
+      for concept_idx, (concept_name, n_classes, unknown_label) in enumerate(self.concept_classes):
+          # Filter out Unknown labels during training
+          valid_mask = (target_concepts[:, concept_idx] != unknown_label)
+          loss = F.cross_entropy(src_logits_valid, target_valid)
   ```
 
-- **Lines 390-430**: **Enhanced `log_concept_predictions` method** - Complete new function
-- **Lines 470-490**: **Enhanced `debug_concept_targets` method** - Complete new function
-- **Lines 650-655**: Added concept loss coefficient in `build` function
+- **Lines 535-590**: `debug_concept_targets` with multi-concept debugging
+
+- **Lines 592-680**: `log_concept_predictions` with per-concept accuracy logging
+
+- **Lines 860-940**: `build()` function with multi-concept support and per-concept loss weights
 
 #### B. Loss Function Enhancements
-- **New concept loss**: Cross-entropy loss for gender classification
-- **Unknown label handling**: Special handling for 'Unknown' gender labels (label=2) during training
-- **Comprehensive logging**: Detailed concept prediction accuracy and confusion metrics
+- **Multi-concept loss**: Cross-entropy loss per concept type
+- **Unknown label handling**: Per-concept unknown label filtering (configurable via `concept_classes`)
+- **Per-concept weight_dict**: Separate loss weights like `loss_gender`, `loss_upper_body`
 - **Multi-layer supervision**: Concept losses computed for all decoder layers
 
-### 2. Data Pipeline Modifications
+### 2. Concept-Based Identity Prediction (Concept Bottleneck Integration)
+
+#### A. IDDecoder Model (`models/motip/id_decoder.py`)
+
+**Key additions for concept bottleneck integration:**
+- **Lines 24-27**: New constructor parameters for concept integration
+  ```python
+  concept_classes: Optional[List[tuple]] = None,  # [(name, n_classes, unknown_label), ...]
+  concept_dim: int = 0,  # Dimension of concept embeddings (0 = disabled)
+  ```
+
+- **Lines 45-56**: Concept embedding layer setup
+  ```python
+  # Total embedding dimension: features + concepts + id
+  self.total_embed_dim = self.feature_dim + self.concept_dim + self.id_dim
+  
+  # Concept embedding layers: convert one-hot concept labels to embeddings
+  total_concept_classes = sum(n_classes for _, n_classes, _ in self.concept_classes)
+  self.concept_to_embed = nn.Linear(total_concept_classes, self.concept_dim, bias=False)
+  ```
+
+- **Lines 202-225**: Forward pass concept embedding integration
+  ```python
+  # Concatenate: [features, concept_embeds, id_embeds]
+  trajectory_embeds = torch.cat([trajectory_features, trajectory_concept_embeds, trajectory_id_embeds], dim=-1)
+  ```
+
+- **Lines 360-390**: `concept_labels_to_embed` method for one-hot encoding and projection
+
+#### B. MOTIP Builder (`models/motip/__init__.py`)
+- **Lines 172-190**: Reads `CONCEPT_DIM` from config and passes to IDDecoder
+
+### 3. Data Pipeline Modifications
 
 #### A. Data Transforms (`data/transforms.py`)
 
-**New additions with specific line locations:**
-- **Lines 112-115**: Added concepts to field filtering in `MultiSimulate`
-  ```python
-  _need_to_select_fields = ["bbox", "category", "id", "visibility"]
-  if "concepts" in _ann:
-      _need_to_select_fields.append("concepts")
-  ```
-
-- **Lines 245-248**: Added concepts to field filtering in `MultiRandomCrop`
+**Concept field preservation in augmentations:**
+- **Lines 265-270**: Added concepts to field filtering in `MultiRandomCrop`
   ```python
   _need_to_select_fields = ["bbox", "category", "id", "visibility"]
   if "concepts" in _annotation:
       _need_to_select_fields.append("concepts")
   ```
 
-#### B. Training Pipeline (`train.py`)
+#### B. P-DESTRE Dataset (`data/pdestre.py`) - **NEW FILE**
 
-**New additions with specific line locations:**
-- **Line 285**: Added concept accuracy logging
+Complete P-DESTRE dataset implementation with:
+- **Lines 1-50**: Dataset class inheriting from DanceTrack
+- **Lines 50-100**: Split file loading (`Train_0.txt`, `Test_0.txt`, `val_0.txt`)
+- **Lines 100-175**: Sequence info construction with image path validation
+- **Lines 175-230**: Custom image path methods for P-DESTRE folder structure
+- **Lines 230-255**: `_init_annotations` with 7-concept 2D tensor support
   ```python
-  if 'concept_accuracy' in detr_loss_dict:
-      metrics.update(name="concept_acc", value=detr_loss_dict['concept_accuracy'].item())
+  "concepts": torch.empty(size=(0, 7), dtype=torch.int64),  # 2D tensor for 7 concepts
+  ```
+- **Lines 255-331**: Annotation loading from P-DESTRE format (25 columns)
+  ```python
+  # Parse all 7 concepts from P-DESTRE columns
+  gender = int(items[10])
+  hairstyle = int(items[16])
+  head_accessories = int(items[20])
+  upper_body = int(items[21])
+  lower_body = int(items[22])
+  feet = int(items[23])
+  accessories = int(items[24])
   ```
 
-- **Lines 350-355**: Enhanced concept target handling in `annotations_to_flatten_detr_targets`
+#### C. Joint Dataset (`data/joint_dataset.py`)
+- **Lines 17-26**: Added P-DESTRE to `dataset_classes` registry
   ```python
-  # Add concepts if available
-  if "concepts" in ann:
-      target["concepts"] = ann["concepts"].to(device)
+  dataset_classes = {
+      "DanceTrack": DanceTrack,
+      "P-DESTRE": PDESTRE,  # Must match config string exactly
+      ...
+  }
+  ```
+- **Lines 70-95**: Path correction hotfix for P-DESTRE image paths
+
+#### D. Data Utilities (`data/util.py`)
+- **Lines 36-47**: Updated `is_legal` to validate concepts tensor
+- **Lines 65-100**: Updated `append_annotation` for multi-concept support
+  ```python
+  if isinstance(concepts, (list, tuple)):
+      concepts_tensor = torch.tensor([concepts], dtype=torch.int64)  # 2D shape
   ```
 
-### 3. Configuration System
+#### E. Training Pipeline (`train.py`)
+- **Lines 6-28**: RF-DETR path setup for optional backbone integration
+- **Concept target handling**: Concepts passed through to DETR targets
 
-#### A. Enhanced Config (`configs/r50_deformable_detr_motip_pdestre.yaml`)
-**Complete new file** with P-DESTRE specific configuration:
+### 4. Runtime Tracker with Concept Support
+
+#### A. Runtime Tracker (`models/runtime_tracker.py`)
+
+**Key modifications for inference with concepts:**
+- **Lines 85-90**: Added `trajectory_concepts` tensor field
+  ```python
+  self.trajectory_concepts = torch.zeros(
+      (0, 0, 0), dtype=torch.int64, device=distributed_device(),
+  )
+  ```
+
+- **Lines 252-253**: Passing concepts to seq_info for ID decoder
+- **Lines 364-420**: **Fixed dimension mismatch bug** in `_update_trajectory_infos`
+  ```python
+  # Handle dimension mismatch when trajectory count changes
+  if self.trajectory_concepts.shape[1] != _N:
+      if _N > _N_concepts:
+          _pad = torch.zeros((_T_concepts, _N - _N_concepts, num_concepts), ...)
+          self.trajectory_concepts = torch.cat([self.trajectory_concepts, _pad], dim=1)
+  ```
+- **Lines 430-435**: Filtering concepts when filtering inactive tracks
+
+### 5. Configuration System
+
+#### A. Available Configurations
+
+| Config File | Description |
+|-------------|-------------|
+| `r50_deformable_detr_motip_pdestre_concepts_for_id.yaml` | **Concept-based ID prediction** - uses concepts to enhance ID matching |
+| `r50_deformable_detr_motip_pdestre_fast.yaml` | Fast training with all 7 concepts, larger intervals |
+| `r50_deformable_detr_motip_pdestre_standard.yaml` | Standard training config |
+| `rfdetr_medium_motip_pdestre.yaml` | RF-DETR backbone with DINOv2 |
+
+#### B. Key Configuration Parameters
+
 ```yaml
-# Inherit from the base DanceTrack config
-SUPER_CONFIG_PATH: ./configs/r50_deformable_detr_motip_dancetrack.yaml
-
-# Override Data Settings
-DATASETS: [P-DESTRE]
-DATASET_SPLITS: [train]
-INFERENCE_DATASET: PDESTRE
-INFERENCE_SPLIT: test
-
-# Override Model & Loss Settings (MOTIP)
 MOTIP:
-  N_CONCEPTS: 3  # P-DESTRE Gender: 0=Male, 1=Female, 2=Unknown
+  N_CONCEPTS: 7  # Number of concept types (not total classes)
+  CONCEPT_DIM: 64  # NEW: Enables concept embeddings in IDDecoder (0 = disabled)
+  CONCEPT_CLASSES:  # Multi-concept definition: [name, num_classes, unknown_label]
+    - ["gender", 3, 2]
+    - ["hairstyle", 6, 5]
+    - ["head_accessories", 5, 4]
+    - ["upper_body", 13, 12]
+    - ["lower_body", 10, 9]
+    - ["feet", 7, 6]
+    - ["accessories", 8, 7]
   DETR_LOSSES: [labels, boxes, cardinality, concepts]
-  CONCEPT_LOSS_COEF: 0.5  # Weight for concept loss
+  CONCEPT_LOSS_COEF: 0.5
+
+# Auto-resume from checkpoint (NEW)
+USE_PREVIOUS_CHECKPOINT: True
+
+# Intra-epoch checkpointing (for long epochs)
+SAVE_CHECKPOINT_EVERY_N_STEPS: 5000
+RESUME_FROM_STEP: 0
 ```
 
-### 4. Enhanced Demo (`demo/video_process.ipynb`)
+#### C. RF-DETR Configuration (`rfdetr_medium_motip_pdestre.yaml`)
 
-**New cells added:**
-- **Cell 11**: Concept tracking class and visualization (lines 245-295)
-- **Cell 12**: Enhanced video processing with concept predictions (lines 295-395)
+```yaml
+DETR_FRAMEWORK: rf_detr  # Switch from deformable_detr
 
-## How to Run the Training
-
-### 1. **Environment Setup**
-```bash
-cd /pfs/work9/workspace/scratch/ma_ighidaya-thesis_ignatio/MOTIP
-module load devel/cuda/11.8  # Load CUDA if needed
+RFDETR:
+  ENCODER: dinov2_windowed_small  # DINOv2 backbone
+  RESOLUTION: 588
+  HIDDEN_DIM: 256
+  DEC_LAYERS: 4
+  PATCH_SIZE: 14
+  TWO_STAGE: True
+  LOAD_DINOV2_WEIGHTS: True  # Auto-download DINOv2 weights
 ```
 
-### 2. **Create SLURM Training Script** (`train.sh`)
+### 6. Training Scripts
+
+| Script | Description |
+|--------|-------------|
+| `train_fast.sh` | Fast training with concept-for-ID config |
+| `train_standard_motip.sh` | Standard MOTIP training |
+| `train_rfdetr.sh` | RF-DETR backbone training |
+| `eval_checkpoint0.sh` | Evaluate checkpoint_0 |
+| `evaluate_checkpoint.py` | General checkpoint evaluation script |
+
+## How to Run Training
+
+### 1. Environment Setup
 ```bash
-#!/usr/bin/env bash
-#SBATCH --job-name=mk21
-#SBATCH --partition=gpu_a100_il
-#SBATCH --gres=gpu:1
-#SBATCH --ntasks=1
-#SBATCH --cpus-per-task=8
-#SBATCH --time 00:30:00
-#SBATCH --mem=16G
-#SBATCH --output=logs/make_%j_concept_id_logs.out
-#SBATCH --error=logs/make_%j_concept_id_logs.err
-# ------------------------------------------------------------------------------------------------
-# Deformable DETR
-# Copyright (c) 2020 SenseTime. All Rights Reserved.
-# Licensed under the Apache License, Version 2.0 [see LICENSE for details]
-# ------------------------------------------------------------------------------------------------
-# Modified from https://github.com/chengdazhi/Deformable-Convolution-V2-PyTorch/tree/pytorch_1.0.0
-# ------------------------------------------------------------------------------------------------
-
-echo "Started at $(date)"
-
-# Make sure we're not in any virtual environment
-if [[ "$VIRTUAL_ENV" != "" ]]; then
-    deactivate
-fi
-
-# Source conda - you need to find your miniconda3 path
-source ~/miniconda3/etc/profile.d/conda.sh
+cd /path/to/MOTIP
 conda activate MOTIP
 
-TORCH_CUDA_ARCH_LIST="8.0" 
-CUDA_HOME='/opt/bwhpc/common/devel/cuda/11.8'  
-accelerate launch --num_processes=1 train.py --data-root ./data/ --exp-name r50_deformable_detr_motip_pdestre_concept_and_ID_logs --config-path ./configs/r50_deformable_detr_motip_pdestre.yaml
+# Verify RF-DETR is available (optional, for RF-DETR training)
+ls rf-detr/  # Should contain rfdetr package
 ```
 
-### 3. **Prepare Required Directories**
+### 2. Data Structure
+```
+data/
+└── P-DESTRE/
+    ├── images/
+    │   └── <sequence_name>/
+    │       └── img1/
+    │           └── 000001.jpg, ...
+    ├── annotations/
+    │   └── <sequence_name>.txt  # 25-column P-DESTRE format
+    └── splits/
+        ├── Train_0.txt, Train_1.txt, ...
+        ├── Test_0.txt, Test_1.txt, ...
+        └── val_0.txt, val_1.txt, ...
+```
+
+### 3. Training Commands
+
+**Standard MOTIP with Concepts:**
 ```bash
-# Create necessary directories
-mkdir -p logs
-mkdir -p outputs
-mkdir -p pretrains
-
-# Ensure data directory exists
-ls /pfs/work9/workspace/scratch/ma_ighidaya-thesis_ignatio/data/P-DESTRE/
+./train_fast.sh
+# or
+accelerate launch --num_processes=1 train.py \
+    --data-root ./data/ \
+    --config-path ./configs/r50_deformable_detr_motip_pdestre_concepts_for_id.yaml \
+    --exp-name my_experiment
 ```
 
-### 4. **Download Pre-trained Weights (Optional)**
+**RF-DETR Backbone:**
 ```bash
-# Download pre-trained Deformable DETR model
-cd pretrains/
-wget https://github.com/fundamentalvision/Deformable-DETR/releases/download/v1.0/r50_deformable_detr_coco.pth
-
-# Verify download
-ls -la r50_deformable_detr_coco.pth
+./train_rfdetr.sh
 ```
 
-### 5. **Submit Training Job**
+### 4. Checkpoint Evaluation
 ```bash
-# Submit the job to SLURM
-sbatch train.sh
+# Evaluate specific checkpoint
+python evaluate_checkpoint.py \
+    --checkpoint outputs/<exp_name>/train/checkpoint_0.pth \
+    --dataset P-DESTRE \
+    --split Test_0
 
-# Monitor job status
-squeue -u $USER
-
-# Check job details
-scontrol show job <job_id>
+# Quick evaluation of checkpoint_0
+./eval_checkpoint0.sh
 ```
 
-### 6. **Monitor Training Progress**
-```bash
-# Follow training logs in real-time
-tail -f logs/train_<job_id>.out
+### 5. Resume Training
+Training automatically resumes from the last checkpoint when:
+- `USE_PREVIOUS_CHECKPOINT: True` is set in config
+- Checkpoint files exist in the output directory
 
-# Check for errors
-tail -f logs/train_<job_id>.err
-
-# View recent log files
-ls -lt logs/
-
-# Monitor GPU usage (on compute node)
-nvidia-smi
+For mid-epoch resume:
+```yaml
+RESUME_FROM_STEP: 5000  # Resume from step 5000
 ```
 
-### 7. **Training Output Structure**
+## Output Structure
 ```
 outputs/
-└── motip_pdestre_gender_prediction/
+└── <exp_name>/
     ├── train/
-    │   ├── log.txt              # Detailed training logs
-    │   ├── checkpoint_*.pth     # Model checkpoints (saved every N epochs)
-    │   └── eval_during_train/   # Evaluation results during training
-    └── multi_last_checkpoints/  # Final checkpoints from last epoch
-        ├── last_checkpoint_0.pth
-        ├── last_checkpoint_1.pth
-        └── ...
-```
-
-### 8. **Key Training Parameters**
-```yaml
-# Core training settings
-EPOCHS: 20
-BATCH_SIZE: 4
-LR: 1e-4
-DETR_NUM_TRAIN_FRAMES: 3  # Number of frames for DETR training
-
-# Concept-specific settings  
-N_CONCEPTS: 3              # Male, Female, Unknown
-CONCEPT_LOSS_COEF: 0.5     # Weight for concept loss
-DETR_LOSSES: [labels, boxes, cardinality, concepts]
-
-# Data settings
-DATASETS: [P-DESTRE]
-DATASET_SPLITS: [train]
-```
-
-### 9. **Expected Training Output**
-```
-[Concepts] Accuracy: 89.5% (12 Unknown, 45 valid)
-[Concepts] Preds: 23M 22F | GT: 25M 20F
-[IDs] Accuracy: 94.2% (42/45)
-[Tracking] Targets: 57 objects
-```
-
-### 10. **Troubleshooting Common Issues**
-
-#### Memory Issues
-```bash
-# Reduce batch size in config or command line
-python train.py --config-path configs/r50_deformable_detr_motip_pdestre.yaml --batch-size 2
-```
-
-#### CUDA Out of Memory
-```bash
-# Use gradient checkpointing
-# Set USE_DECODER_CHECKPOINT: True in config
-# Reduce DETR_NUM_TRAIN_FRAMES from 3 to 2
-```
-
-#### Job Not Starting
-```bash
-# Check cluster status
-sinfo
-
-# Check your job queue position
-squeue -u $USER
-
-# Cancel and resubmit if needed
-scancel <job_id>
-sbatch train.sh
-```
-
-### 11. **Resume Training** (if interrupted)
-```bash
-# Modify train.sh to resume from checkpoint
-python train.py \
-    --config-path configs/r50_deformable_detr_motip_pdestre.yaml \
-    --resume-model outputs/motip_pdestre_gender_prediction/checkpoint_10.pth \
-    --resume-optimizer \
-    --resume-scheduler
-```
-
-### 12. **Run Demo After Training**
-```bash
-# Start Jupyter on compute node (interactive session)
-salloc --nodes=1 --gres=gpu:1 --cpus-per-task=4 --mem=16G --time=2:00:00
-jupyter notebook --no-browser --port=8888
-
-# Then access via tunnel from local machine
-# ssh -L 8888:localhost:8888 username@cluster
-# Open: demo/video_process.ipynb
-```
-
-## Training Workflow Summary
-
-1. **Setup**: Prepare environment, data, and config
-2. **Submit**: `sbatch train.sh` 
-3. **Monitor**: `tail -f logs/train_*.out`
-4. **Evaluate**: Training includes periodic evaluation
-5. **Demo**: Use trained model in Jupyter demo
-
-The enhanced MOTIP model will learn to:
-- Detect and track multiple people across video frames
-- Predict gender attributes (Male/Female/Unknown) for each person
-- Maintain consistent identity associations over time
-- Handle occlusions and appearance changes
-
-## Technical Implementation Details
-
-### Concept Prediction Head
-```python
-# New component in DeformableDETR
-if self.num_concepts > 0:
-    self.concept_embed = MLP(hidden_dim, hidden_dim, self.num_concepts, 3)
-```
-
-### Loss Function
-```python
-def loss_concepts(self, outputs, targets, indices, num_boxes, **kwargs):
-    """Gender classification loss with Unknown label handling"""
-    # Filter out Unknown labels (=2) during training
-    valid_mask = (target_classes_o != 2)
-    # Compute cross-entropy only on valid predictions
-    loss_concepts = F.cross_entropy(src_logits_valid, target_classes_valid)
-```
-
-### Data Structure
-```python
-# Enhanced annotation format
-annotation = {
-    "bbox": tensor,      # Original bounding boxes
-    "category": tensor,  # Original category labels  
-    "id": tensor,        # Original track IDs
-    "concepts": tensor,  # NEW: Gender labels [0=Male, 1=Female, 2=Unknown]
-}
-```
-
-## Training Results
-
-The enhanced model successfully learns to:
-- Track multiple objects with identity consistency
-- Predict gender attributes with high accuracy
-- Handle unknown/ambiguous gender cases appropriately
-- Maintain original tracking performance while adding concept prediction
-
-### Sample Training Metrics
-```
-[Concepts] Accuracy: 89.5% (12 Unknown, 45 valid)
-[Concepts] Preds: 23M 22F | GT: 25M 20F
-[IDs] Accuracy: 94.2% (42/45)
+    │   ├── log.txt
+    │   ├── checkpoint_0.pth, checkpoint_1.pth, ...
+    │   ├── step_checkpoint_5000.pth  # Intra-epoch checkpoint
+    │   └── eval_during_train/
+    └── multi_last_checkpoints/
 ```
 
 ## File Structure Changes
 
 ```
 MOTIP/
-├── train.sh                     # ✓ SLURM training script
-├── logs/                        # ✓ Training log outputs  
-├── models/deformable_detr/
-│   └── deformable_detr.py        # ✓ Enhanced with concept prediction
+├── train.py                          # ✓ RF-DETR path setup, concept handling
+├── train_fast.sh                     # ✓ Fast training script
+├── train_rfdetr.sh                   # ✓ RF-DETR training script  
+├── evaluate_checkpoint.py            # ✓ NEW: Standalone evaluation
+├── eval_checkpoint0.sh               # ✓ NEW: Quick checkpoint_0 eval
+├── models/
+│   ├── deformable_detr/
+│   │   └── deformable_detr.py        # ✓ Multi-concept prediction heads
+│   ├── motip/
+│   │   ├── __init__.py               # ✓ Concept dim passing to IDDecoder
+│   │   └── id_decoder.py             # ✓ Concept bottleneck integration
+│   └── runtime_tracker.py            # ✓ Concept tracking + dimension fix
 ├── data/
-│   ├── pdestre.py                # ✓ New P-DESTRE dataset support
-│   └── transforms.py             # ✓ Concept-aware transformations
+│   ├── pdestre.py                    # ✓ NEW: P-DESTRE dataset
+│   ├── joint_dataset.py              # ✓ P-DESTRE registration + path fix
+│   ├── transforms.py                 # ✓ Concept field preservation
+│   └── util.py                       # ✓ Multi-concept append/validation
 ├── configs/
-│   └── r50_deformable_detr_motip_pdestre.yaml  # ✓ P-DESTRE configuration
-├── train.py                      # ✓ Enhanced training pipeline
-└── demo/
-    └── video_process.ipynb       # ✓ Enhanced demo with concepts
+│   ├── r50_deformable_detr_motip_pdestre_concepts_for_id.yaml  # ✓ Concept-for-ID
+│   ├── r50_deformable_detr_motip_pdestre_fast.yaml             # ✓ Fast training
+│   ├── r50_deformable_detr_motip_pdestre_standard.yaml         # ✓ Standard
+│   └── rfdetr_medium_motip_pdestre.yaml                        # ✓ RF-DETR config
+└── rf-detr/                          # ✓ RF-DETR submodule (optional)
 ```
 
-## Detailed Code Locations Summary
+## Technical Implementation Details
 
-| File | Lines | Description |
-|------|-------|-------------|
-| `deformable_detr.py` | 31-32, 85-87, 99-101 | Core concept embedding initialization |
-| `deformable_detr.py` | 148-150, 159-161 | Forward pass concept integration |
-| `deformable_detr.py` | 200-250 | New `loss_concepts` method |
-| `deformable_detr.py` | 390-430, 470-490 | Enhanced logging and debugging |
-| `transforms.py` | 112-115, 245-248 | Concept field preservation in augmentations |
-| `train.py` | 285, 350-355 | Training loop concept integration |
-| `r50_deformable_detr_motip_pdestre.yaml` | Entire file | P-DESTRE configuration |
-| `video_process.ipynb` | Cells 11-12 | Enhanced demo with concept visualization |
-| `train.sh` | New file | SLURM training script |
+### Multi-Concept Prediction Architecture
+```python
+# DeformableDETR with multi-concept heads
+self.concept_embeds = nn.ModuleList()
+for n_classes in concept_classes:  # [3, 6, 5, 13, 10, 7, 8]
+    self.concept_embeds.append(MLP(hidden_dim, hidden_dim, n_classes, 3))
 
-## Benefits
+# Output: list of predictions per concept type
+out['pred_concepts'] = [concept_preds[i][-1] for i in range(num_concepts)]
+```
 
-1. **Multi-task Learning**: Simultaneous object tracking and gender prediction
-2. **Enhanced Annotations**: Richer semantic understanding of tracked objects  
-3. **Real-world Applications**: Suitable for surveillance, crowd analysis, demographic studies
-4. **Extensible Framework**: Easy to extend to other concept types (age, clothing, etc.)
+### Concept Bottleneck for ID Prediction
+```python
+# IDDecoder with concept integration
+# 1. Convert concept labels to one-hot
+# 2. Project to concept embedding space
+# 3. Concatenate with visual features and ID embeddings
+trajectory_embeds = torch.cat([
+    trajectory_features,      # Visual features (256-dim)
+    trajectory_concept_embeds,  # Concept embeddings (concept_dim)
+    trajectory_id_embeds        # ID embeddings (id_dim)
+], dim=-1)
+# Total: feature_dim + concept_dim + id_dim
+```
 
-## Future Extensions
+### P-DESTRE Annotation Format
+```
+# 25-column format:
+# Frame,ID,x,y,h,w,conf,world_x,world_y,world_z,Gender,...,Hairstyle,...,Accessories
+# Column indices: gender=10, hairstyle=16, head_accessories=20, upper_body=21, 
+#                 lower_body=22, feet=23, accessories=24
+```
 
-The concept prediction framework can be extended to:
-- Age prediction (child/adult/elderly)
-- Clothing attributes (color, type)
-- Activity recognition (walking/running/sitting)
-- Facial expressions or poses
+### Data Structure
+```python
+# Enhanced annotation format with multi-concept support
+annotation = {
+    "bbox": tensor,      # Bounding boxes (N, 4)
+    "category": tensor,  # Category labels (N,)
+    "id": tensor,        # Track IDs (N,)
+    "visibility": tensor,  # Visibility scores (N,)
+    "concepts": tensor,  # NEW: Multi-concept labels (N, 7)
+    # concepts[:, 0] = gender, concepts[:, 1] = hairstyle, etc.
+}
+```
+
+## Bug Fixes
+
+### 1. Runtime Tracker Dimension Mismatch (Fixed)
+**Issue**: `RuntimeError: Sizes of tensors must match except in dimension 0. Expected size 52 but got size 50`
+
+**Cause**: `trajectory_concepts` tensor dimension mismatch when trajectory count changes between frames.
+
+**Fix** ([runtime_tracker.py](models/runtime_tracker.py#L402-L420)):
+```python
+if self.trajectory_concepts.shape[1] != _N:
+    if _N > _N_concepts:
+        _pad = torch.zeros((_T_concepts, _N - _N_concepts, num_concepts), ...)
+        self.trajectory_concepts = torch.cat([self.trajectory_concepts, _pad], dim=1)
+```
+
+### 2. P-DESTRE Dataset Registration
+**Issue**: `KeyError: 'PDESTRE'` when loading dataset
+
+**Fix**: Use `"P-DESTRE"` (with hyphen) in config to match `dataset_classes` registry.
 
 ## Compatibility
 
-- ✅ Maintains full backward compatibility with original MOTIP
-- ✅ Can run without concept prediction (set `N_CONCEPTS: 0`)
-- ✅ Works with existing DETR pretrained models
+- ✅ Backward compatible with original MOTIP (set `N_CONCEPTS: 0`)
+- ✅ Works with existing Deformable DETR pretrained models
+- ✅ Optional RF-DETR backbone support
 - ✅ Supports all original training configurations
+- ✅ Auto-resume from checkpoints
 
-## Performance
+## Future Extensions
 
-- **Tracking Performance**: Maintained at original MOTIP levels
-- **Concept Accuracy**: ~85-95% on P-DESTRE dataset  
-- **Training Speed**: ~5-10% slower due to additional concept head
-- **Memory Usage**: Minimal increase (~50MB for concept components)
+The multi-concept framework can be extended to:
+- Additional person attributes (age, pose, etc.)
+- Other datasets with soft/rich annotations
+- Concept-guided re-identification
+- Temporal concept consistency constraints
 
 ---
 
-*This implementation demonstrates how to extend object tracking models with semantic concept prediction while maintaining the original tracking capabilities. The enhanced MOTIP model simultaneously learns object detection, tracking, and gender concept prediction via SLURM-based distributed training.*
+*This implementation demonstrates Concept Bottleneck Model integration for multi-object tracking, combining visual features with semantic concept predictions to enhance identity association.*

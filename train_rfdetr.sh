@@ -15,7 +15,7 @@
 if [ -z "$SLURM_JOB_ID" ]; then
     # Not running under Slurm, setup manual logging
     mkdir -p logs
-    LOG_FILE="logs/motip_rfdetr_all_folds_$(date +%Y%m%d_%H%M%S).log"
+    LOG_FILE="logs/motip_rfdetr_large_all_folds_$(date +%Y%m%d_%H%M%S).log"
     echo "Logging to: $LOG_FILE"
     # Redirect all output to log file while also displaying on terminal
     exec > >(tee -a "$LOG_FILE") 2>&1
@@ -37,13 +37,13 @@ if [[ "$VIRTUAL_ENV" != "" ]]; then
     deactivate
 fi
 
-# Source conda (if available)
+# Source conda (if available) - use base environment which has PyTorch
 if [ -f ~/miniconda3/etc/profile.d/conda.sh ]; then
     source ~/miniconda3/etc/profile.d/conda.sh
-    conda activate MOTIP
+    conda activate base
 elif [ -f ~/anaconda3/etc/profile.d/conda.sh ]; then
     source ~/anaconda3/etc/profile.d/conda.sh
-    conda activate MOTIP
+    conda activate base
 else
     echo "Conda not found, using system Python"
 fi
@@ -57,9 +57,9 @@ elif [ -d "/opt/bwhpc/common/devel/cuda/11.8" ]; then
 fi
 export CUDA_VISIBLE_DEVICES=0
 
-# Add RF-DETR to Python path (rf-detr is sibling to MOTIP directory)
+# Add RF-DETR to Python path (rf-detr is inside MOTIP directory)
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
-export PYTHONPATH="${SCRIPT_DIR}/../rf-detr:${PYTHONPATH}"
+export PYTHONPATH="${SCRIPT_DIR}/rf-detr:${PYTHONPATH}"
 echo "PYTHONPATH set to include RF-DETR: ${PYTHONPATH}"
 
 # Debug: Check GPU availability
@@ -141,21 +141,31 @@ python -c "import MultiScaleDeformableAttention" 2>/dev/null || {
 echo "Starting RF-DETR + MOTIP training for all folds..."
 echo "Model: RF-DETR Medium (DINOv2 backbone)"
 echo "Resolution: 588x588"
-echo "Dataset: P-DESTRE with 7 concepts"
-echo "Training 10 folds sequentially"
+echo "Dataset: P-DESTRE - concepts predicted but NOT passed to ID predictor"
+echo "Training 3 folds sequentially"
 echo ""
 
-# Loop through folds 0-9
-for FOLD in {0..0}; do
+# Loop through folds 0-2
+for FOLD in {0..2}; do
     echo "=========================================="
     echo "Starting Fold ${FOLD} at $(date)"
     echo "=========================================="
+    
+    # Check if checkpoint exists for resuming
+    CHECKPOINT_PATH="./outputs/rfdetr_large_motip_pdestre_no_concepts_fold_${FOLD}/checkpoint_0.pth"
+    RESUME_ARG=""
+    if [ -f "$CHECKPOINT_PATH" ]; then
+        echo "Found checkpoint at ${CHECKPOINT_PATH}, will resume training"
+        RESUME_ARG="--resume-model ${CHECKPOINT_PATH}"
+    else
+        echo "No checkpoint found, starting fresh training"
+    fi
     
     # Create a temporary config file for this fold
     FOLD_CONFIG="/tmp/rfdetr_fold_${FOLD}.yaml"
     cat > "$FOLD_CONFIG" << EOF
 # Temporary config for fold ${FOLD}
-SUPER_CONFIG_PATH: ./configs/rfdetr_medium_motip_pdestre.yaml
+SUPER_CONFIG_PATH: ./configs/rfdetr_medium_motip_pdestre_7concepts.yaml
 
 # Override dataset splits for this fold
 DATASETS: [P-DESTRE]
@@ -165,11 +175,12 @@ INFERENCE_SPLIT: val_${FOLD}
 EOF
     
     # Launch with explicit PYTHONPATH
-    env PYTHONPATH="${SCRIPT_DIR}/../rf-detr:${PYTHONPATH}" \
+    env PYTHONPATH="${SCRIPT_DIR}/rf-detr:${PYTHONPATH}" \
     accelerate launch --num_processes=1 train.py \
         --data-root ./data/ \
-        --exp-name rfdetr_motip_pdestre_fold_${FOLD} \
-        --config-path "$FOLD_CONFIG"
+        --exp-name rfdetr_large_motip_pdestre_no_concepts_fold_${FOLD} \
+        --config-path "$FOLD_CONFIG" \
+        $RESUME_ARG
     
     # Clean up temporary config
     rm -f "$FOLD_CONFIG"

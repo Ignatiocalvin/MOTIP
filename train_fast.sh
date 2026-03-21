@@ -15,7 +15,7 @@
 if [ -z "$SLURM_JOB_ID" ]; then
     # Not running under Slurm, setup manual logging
     mkdir -p logs
-    LOG_FILE="logs/motip_fixed_fold_3_$(date +%Y%m%d_%H%M%S).log"
+    LOG_FILE="logs/motip_concepts_for_id_fold_2_$(date +%Y%m%d_%H%M%S).log"
     echo "Logging to: $LOG_FILE"
     # Redirect all output to log file while also displaying on terminal
     exec > >(tee -a "$LOG_FILE") 2>&1
@@ -104,7 +104,7 @@ echo "Settings matched to fold training:"
 echo "  - 2 concepts: gender, upper_body"
 echo "  - SAMPLE_LENGTHS: [15], SAMPLE_INTERVALS: [4]"
 echo "  - EPOCHS: 3"
-echo "  - Train_1 split (same as fold_0)"
+echo "  - Train_2, val_2, Test_2 splits (fold_2)"
 echo ""
 echo "NEW: CONCEPT_DIM=64 enables concept embeddings in IDDecoder"
 echo "  total_embed_dim = 256 (features) + 64 (concepts) + 256 (id) = 576"
@@ -114,7 +114,7 @@ echo ""
 
 accelerate launch --num_processes=1 train.py \
     --data-root ./data/ \
-    --exp-name r50_motip_pdestre_concepts_for_id_fold_1 \
+    --exp-name r50_motip_pdestre_concepts_for_id_fold_2 \
     --config-path ./configs/r50_deformable_detr_motip_pdestre_concepts_for_id.yaml
 
 echo "Finished at $(date)"
@@ -122,7 +122,7 @@ echo ""
 echo "=========================================="
 echo "COMPARISON:"
 echo "  Baseline: outputs/r50_motip_pdestre_fold_0/"
-echo "  This run: outputs/r50_motip_pdestre_concepts_for_id_fold_1/"
+echo "  This run: outputs/r50_motip_pdestre_concepts_for_id_fold_2/"
 echo ""
 echo "After training, compare:"
 echo "  1. HOTA, MOTA, IDF1 metrics (tracking quality)"

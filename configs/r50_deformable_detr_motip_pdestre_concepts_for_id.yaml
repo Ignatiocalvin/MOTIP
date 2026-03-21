@@ -11,9 +11,9 @@ SUPER_CONFIG_PATH: ./configs/r50_deformable_detr_motip_dancetrack.yaml
 
 # --- Data Settings (SAME as fold training) ---
 DATASETS: [P-DESTRE]
-DATASET_SPLITS: [Train_1]  # Use same split as fold_0 for comparison
+DATASET_SPLITS: [Train_2]  # Use same split as fold_2 for comparison
 INFERENCE_DATASET: P-DESTRE
-INFERENCE_SPLIT: val_1
+INFERENCE_SPLIT: val_2
 
 # --- Sample settings (SAME as fold training) ---
 SAMPLE_STEPS: [0, ]
@@ -21,16 +21,25 @@ SAMPLE_LENGTHS: [15, ]
 SAMPLE_INTERVALS: [4, ]
 
 # --- Model & Loss Settings ---
-# SAME 2 concepts as previous training (gender, upper_body)
+# ALL 7 concepts from P-DESTRE dataset
 # NEW: CONCEPT_DIM enables concept embeddings in IDDecoder
 MOTIP:
-  N_CONCEPTS: 2  # SAME as fold training
-  CONCEPT_DIM: 64  # NEW: This enables concept-based ID prediction!
+  N_CONCEPTS: 7  # All P-DESTRE concepts
+  CONCEPT_DIM: 256  # Dimension of concept embeddings (increased for better representation)
+  # CONCEPT_BOTTLENECK_MODE: Controls how concepts are integrated into ID prediction
+  #   "hard" (default): Use argmax'd discrete labels - no gradient flow to concept heads
+  #   "soft": Use softmax probabilities - enables end-to-end gradient flow
+  CONCEPT_BOTTLENECK_MODE: "soft"  # NEW: Enable differentiable concept bottleneck
   # CONCEPT_CLASSES: list of [name, n_classes, unknown_label_index]
-  # SAME as previous fold training
+  # All 7 P-DESTRE concept types
   CONCEPT_CLASSES:
     - ["gender", 3, 2]           # 0=Male, 1=Female, 2=Unknown
-    - ["upper_body", 13, 12]     # 0=T-Shirt, 1=Blouse, ..., 12=Unknown
+    - ["hairstyle", 6, 5]        # 0=Bald, 1=Short, 2=Medium, 3=Long, 4=Horse Tail, 5=Unknown
+    - ["head_accessories", 5, 4] # 0=Hat, 1=Scarf, 2=Neckless, 3=Cannot see, 4=Unknown
+    - ["upper_body", 13, 12]     # 0=T-Shirt, 1=Blouse, ..., 11=Vest, 12=Unknown
+    - ["lower_body", 10, 9]      # 0=Jeans, 1=Leggins, 2=Pants, 3=Shorts, ..., 9=Unknown
+    - ["feet", 7, 6]             # 0=Sport Shoe, 1=Classic Shoe, 2=High Heels, ..., 6=Unknown
+    - ["accessories", 8, 7]      # 0=Bag, 1=Backpack, 2=Rolling Bag, 3=Umbrella, ..., 7=Unknown
   DETR_LOSSES: [labels, boxes, cardinality, concepts]
   CONCEPT_LOSS_COEF: 0.5
 
@@ -43,7 +52,10 @@ PREFETCH_FACTOR: 4
 SAVE_CHECKPOINT_EVERY_N_STEPS: 5000
 RESUME_FROM_STEP: 0
 
+# --- Auto-resume from checkpoint ---
+USE_PREVIOUS_CHECKPOINT: True
+
 # --- Outputs ---
-EXP_NAME: r50_motip_pdestre_concepts_for_id_fold_1
+EXP_NAME: r50_motip_pdestre_7concepts_for_id_fold_2
 SAVE_CHECKPOINT_PER_EPOCH: 1
 MULTI_LAST_CHECKPOINTS: 4

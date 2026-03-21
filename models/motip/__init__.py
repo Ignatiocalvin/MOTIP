@@ -127,8 +127,11 @@ def build(config: dict):
     # Add concept-related parameters for MOTIP
     if "MOTIP" in config and "N_CONCEPTS" in config["MOTIP"]:
         detr_args.num_concepts = config["MOTIP"]["N_CONCEPTS"]
-        detr_args.concept_loss_coef = config["MOTIP"]["CONCEPT_LOSS_COEF"]
+        # CONCEPT_LOSS_COEF is optional when using learnable weights
+        detr_args.concept_loss_coef = config["MOTIP"].get("CONCEPT_LOSS_COEF", 0.5)
         detr_args.losses = config["MOTIP"]["DETR_LOSSES"]
+        # Learnable task weights flag
+        detr_args.use_learnable_task_weights = config["MOTIP"].get("USE_LEARNABLE_TASK_WEIGHTS", False)
         # Multi-concept support: CONCEPT_CLASSES is a list of (name, n_classes, unknown_label)
         # e.g., [["gender", 3, 2], ["upper_body", 13, 12]]
         if "CONCEPT_CLASSES" in config["MOTIP"]:
@@ -170,10 +173,13 @@ def build(config: dict):
     # Get concept configuration for ID decoder
     concept_classes = None
     concept_dim = 0
+    concept_bottleneck_mode = "hard"  # Default to original behavior
     if "MOTIP" in config and "CONCEPT_CLASSES" in config["MOTIP"]:
         concept_classes = [tuple(c) for c in config["MOTIP"]["CONCEPT_CLASSES"]]
-        # Use CONCEPT_DIM from config, default to 64 if concepts are enabled
-        concept_dim = config["MOTIP"].get("CONCEPT_DIM", 64)
+        # Use CONCEPT_DIM from config, default to 256 if concepts are enabled
+        concept_dim = config["MOTIP"].get("CONCEPT_DIM", 256)
+        # Use CONCEPT_BOTTLENECK_MODE from config, default to "hard" for backward compatibility
+        concept_bottleneck_mode = config["MOTIP"].get("CONCEPT_BOTTLENECK_MODE", "hard")
     
     _id_decoder = IDDecoder(
         feature_dim=config["FEATURE_DIM"],
@@ -188,6 +194,7 @@ def build(config: dict):
         # Concept integration parameters
         concept_classes=concept_classes,
         concept_dim=concept_dim,
+        concept_bottleneck_mode=concept_bottleneck_mode,
     ) if config["ONLY_DETR"] is False else None
 
     # Construct MOTIP model:

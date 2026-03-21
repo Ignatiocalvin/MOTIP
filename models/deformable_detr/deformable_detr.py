@@ -309,7 +309,8 @@ class SetCriterion(nn.Module):
         1) we compute hungarian assignment between ground truth boxes and the outputs of the model
         2) we supervise each pair of matched ground-truth / prediction (supervise class and box)
     """
-    def __init__(self, num_classes, matcher, weight_dict, losses, focal_alpha=0.25, num_concepts=0, concept_classes=None):
+    def __init__(self, num_classes, matcher, weight_dict, losses, focal_alpha=0.25, num_concepts=0, concept_classes=None, 
+                 use_learnable_weights=False):
         """ Create the criterion.
         Parameters:
             num_classes: number of object categories, omitting the special no-object category
@@ -320,6 +321,7 @@ class SetCriterion(nn.Module):
             num_concepts: legacy - number of concept classes (for single concept)
             concept_classes: list of (name, n_classes, unknown_label) for each concept
                             e.g., [("gender", 3, 2), ("upper_body", 13, 12)]
+            use_learnable_weights: if True, use learnable task-specific weights based on uncertainty
         """
         super().__init__()
         self.num_classes = num_classes
@@ -327,6 +329,18 @@ class SetCriterion(nn.Module):
         self.weight_dict = weight_dict
         self.losses = losses
         self.focal_alpha = focal_alpha
+        self.use_learnable_weights = use_learnable_weights
+        
+        # Learnable task weights (uncertainty-based weighting)
+        if use_learnable_weights:
+            # Initialize log variance parameters for automatic task weighting
+            # Based on "Multi-Task Learning Using Uncertainty to Weigh Losses" (Kendall et al., 2018)
+            self.log_var_detection = nn.Parameter(torch.zeros(1))  # For bbox + giou + ce
+            self.log_var_concepts = nn.Parameter(torch.zeros(1))   # For all concept losses
+            print("[TaskWeighting] Using learnable task weights (uncertainty-based)")
+        else:
+            self.log_var_detection = None
+            self.log_var_concepts = None
         
         # Multi-concept support
         if concept_classes is not None and len(concept_classes) > 0:
@@ -804,7 +818,100 @@ class SetCriterion(nn.Module):
                 l_dict = {k + f'_enc': v for k, v in l_dict.items()}
                 losses.update(l_dict)
 
+        # Apply learnable task weights if enabled
+        if self.use_learnable_weights:
+            losses = self.apply_learnable_weights(losses)
+        
         return losses, indices
+    
+    def apply_learnable_weights(self, losses):
+        """
+        Apply uncertainty-based learnable task weights to losses.
+        Based on "Multi-Task Learning Using Uncertainty to Weigh Losses" (Kendall et al., 2018)
+        
+        Formula: weighted_loss = loss / (2*sigma^2) + log(sigma)
+        where sigma = exp(log_var/2) and log_var is a learned parameter
+        So: weighted_loss = loss * exp(-log_var) / 2 + log_var / 2
+        
+        This automatically balances tasks: high uncertainty (high sigma) → lower weight for that task
+        """
+        weighted_losses = {}
+        
+        # Categorize losses into detection and concept groups
+        detection_loss_keys = []
+        concept_loss_keys = []
+        
+        # List of all concept names we use
+        concept_names = ['gender', 'upper_body', 'lower_body', 'hairstyle', 
+                        'head_accessories', 'feet', 'accessories', 'concepts']
+        
+        for key in losses.keys():
+            # Skip non-loss entries (predictions, targets, accuracy metrics)
+            if '_predictions' in key or '_targets' in key or 'accuracy' in key or 'error' in key:
+                weighted_losses[key] = losses[key]  # Pass through unchanged
+                continue
+            
+            # Check if this is a concept-related loss
+            is_concept_loss = False
+            for concept_name in concept_names:
+                if concept_name in key and 'loss' in key:
+                    is_concept_loss = True
+                    break
+            
+            if is_concept_loss:
+                concept_loss_keys.append(key)
+            elif 'loss' in key:
+                # Detection losses: bbox, giou, ce (class)
+                detection_loss_keys.append(key)
+            else:
+                # Other non-loss metrics pass through
+                weighted_losses[key] = losses[key]
+        
+        # Compute weighted detection losses
+        # Formula: L' = L * exp(-log_var) / 2 + log_var / 2
+        if detection_loss_keys:
+            detection_loss_sum = sum(losses[k] for k in detection_loss_keys if k in losses)
+            precision_detection = torch.exp(-self.log_var_detection)
+            weighted_detection = 0.5 * precision_detection * detection_loss_sum + 0.5 * self.log_var_detection
+            
+            # Scale individual losses proportionally
+            if detection_loss_sum > 1e-8:
+                detection_weight_factor = weighted_detection / detection_loss_sum
+                for key in detection_loss_keys:
+                    weighted_losses[key] = losses[key] * detection_weight_factor
+            else:
+                for key in detection_loss_keys:
+                    weighted_losses[key] = losses[key]
+        
+        # Compute weighted concept losses
+        if concept_loss_keys:
+            concept_loss_sum = sum(losses[k] for k in concept_loss_keys if k in losses)
+            precision_concepts = torch.exp(-self.log_var_concepts)
+            weighted_concepts = 0.5 * precision_concepts * concept_loss_sum + 0.5 * self.log_var_concepts
+            
+            # Scale individual losses proportionally
+            if concept_loss_sum > 1e-8:
+                concept_weight_factor = weighted_concepts / concept_loss_sum
+                for key in concept_loss_keys:
+                    weighted_losses[key] = losses[key] * concept_weight_factor
+            else:
+                for key in concept_loss_keys:
+                    weighted_losses[key] = losses[key]
+        
+        # Log learned weights periodically
+        if not hasattr(self, '_weight_log_counter'):
+            self._weight_log_counter = 0
+        self._weight_log_counter += 1
+        
+        if self._weight_log_counter % 100 == 0:
+            sigma_det = torch.exp(0.5 * self.log_var_detection).item()
+            sigma_con = torch.exp(0.5 * self.log_var_concepts).item()
+            log_var_det = self.log_var_detection.item()
+            log_var_con = self.log_var_concepts.item()
+            print(f"[LearnableWeights] log_var_det={log_var_det:.4f}, log_var_con={log_var_con:.4f} | "
+                  f"σ_det={sigma_det:.4f}, σ_con={sigma_con:.4f}", flush=True)
+        
+        return weighted_losses
 
 
 class PostProcess(nn.Module):
@@ -899,11 +1006,15 @@ def build(args):
         weight_dict["loss_dice"] = args.dice_loss_coef
 
     if concept_loss_coef > 0:
-        weight_dict['loss_concepts'] = concept_loss_coef
-        # Add per-concept loss weights if using multi-concept
+        # NOTE: Only add individual concept losses to weight_dict, NOT loss_concepts
+        # loss_concepts is the SUM of all individual losses - adding it would double-count
+        # We keep individual losses for per-concept weighting and loss_concepts for logging only
         if concept_classes:
             for concept_name, _, _ in concept_classes:
                 weight_dict[f'loss_{concept_name}'] = concept_loss_coef
+        else:
+            # Fallback for single-concept legacy mode
+            weight_dict['loss_concepts'] = concept_loss_coef
 
     # TODO this is a hack
     if args.aux_loss:
@@ -919,13 +1030,17 @@ def build(args):
     # Handle the 'losses' argument from the config
     # If not provided, default to original behavior
     losses = getattr(args, 'losses', ['labels', 'boxes', 'cardinality'])
+    
+    # Get learnable weights flag from config
+    use_learnable_weights = getattr(args, 'use_learnable_task_weights', False)
 
     # num_classes, matcher, weight_dict, losses, focal_alpha=0.25, num_concepts=0, concept_classes=None
     criterion = SetCriterion(
         num_classes, matcher, weight_dict, losses, 
         focal_alpha=args.focal_alpha, 
         num_concepts=num_concepts,
-        concept_classes=concept_classes
+        concept_classes=concept_classes,
+        use_learnable_weights=use_learnable_weights
     )
     criterion.to(device)
     postprocessors = {'bbox': PostProcess()}

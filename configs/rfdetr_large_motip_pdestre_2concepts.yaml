@@ -1,0 +1,115 @@
+# RF-DETR Large MOTIP Configuration for P-DESTRE
+# 2-CONCEPT MODEL: Gender + Upper Body (OPTIMAL for R50 models)
+# For comparison with R50 2-concept model (r50_motip_pdestre_concepts_for_id)
+
+SUPER_CONFIG_PATH: ./configs/r50_deformable_detr_motip_dancetrack.yaml
+
+# --- Override DETR Framework ---
+DETR_FRAMEWORK: rf_detr
+
+# --- Override old NUM_CONCEPTS (from base config) ---
+NUM_CONCEPTS: 2
+
+# --- Data Settings ---
+DATASETS: [P-DESTRE]
+DATASET_SPLITS: [Train_0]  # Will be overridden by training script
+INFERENCE_DATASET: P-DESTRE
+INFERENCE_SPLIT: val_0
+
+# --- Sampling Settings (match R50 models for fair comparison) ---
+SAMPLE_STEPS: [0, ]
+SAMPLE_LENGTHS: [15, ]
+SAMPLE_INTERVALS: [4, ]
+
+# --- RF-DETR Specific Settings ---
+RFDETR:
+  # Model size: Large (DINOv2-Large backbone)
+  ENCODER: dinov2_windowed_large
+  RESOLUTION: 588
+  HIDDEN_DIM: 1024
+  DEC_LAYERS: 6
+  PATCH_SIZE: 14
+  NUM_WINDOWS: 2
+  POSITIONAL_ENCODING_SIZE: 37
+  OUT_FEATURE_INDEXES: [3, 6, 9, 12]
+  PROJECTOR_SCALE: [P4]
+  
+  # Attention settings
+  SA_NHEADS: 16
+  CA_NHEADS: 32
+  DEC_N_POINTS: 4
+  
+  # Architecture settings
+  TWO_STAGE: True
+  LITE_REFPOINT_REFINE: True
+  BBOX_REPARAM: True
+  GROUP_DETR: 1
+  IA_BCE_LOSS: True
+  
+  # Backbone settings
+  LAYER_NORM: True
+  RMS_NORM: False
+  FREEZE_ENCODER: False
+  BACKBONE_LORA: False
+  GRADIENT_CHECKPOINTING: False
+  LOAD_DINOV2_WEIGHTS: True
+  
+  # Pretrained weights
+  PRETRAIN_WEIGHTS: ./pretrains/rf-detr-large.pth
+
+# --- Model Settings ---
+NUM_CLASSES: 1
+DETR_NUM_QUERIES: 300
+DETR_AUX_LOSS: True
+DETR_HIDDEN_DIM: 1024
+
+# --- MOTIP 2-Concept Settings ---
+# Same as optimal R50 2-concept model for fair comparison
+MOTIP:
+  N_CONCEPTS: 2
+  CONCEPT_DIM: 64                  # Match R50: 32 per concept × 2 = 64
+  CONCEPT_BOTTLENECK_MODE: "hard"  # Match R50 2-concept model
+  CONCEPT_CLASSES:
+    - ["gender", 3, 2]             # 0=Male, 1=Female, 2=Unknown
+    - ["upper_body", 13, 12]       # 0=T-Shirt, ..., 12=Unknown
+  DETR_LOSSES: [labels, boxes, cardinality, concepts]
+  CONCEPT_LOSS_COEF: 0.5           # Match R50 models
+
+# --- Training Settings ---
+EPOCHS: 3
+BATCH_SIZE: 1
+LR: 1.0e-4
+LR_BACKBONE_SCALE: 0.1
+LR_WARMUP_EPOCHS: 0
+WEIGHT_DECAY: 0.0005
+MAX_CLIP_NORM: 0.1
+ACCUMULATE_STEPS: 2
+
+# --- Disable DeformableDETR pretrain ---
+DETR_PRETRAIN: null
+
+# --- Tracking Settings ---
+NUM_WORKERS: 5
+PREFETCH_FACTOR: 4
+SIZE_DIVISIBILITY: 32
+
+# --- ID Prediction Settings ---
+NUM_ID_VOCABULARY: 1000
+ID_DIM: 256
+NUM_ID_DECODER_LAYERS: 3
+HEAD_DIM: 64
+REL_PE_LENGTH: 50
+USE_AUX_LOSS: True
+USE_SHARED_AUX_HEAD: True
+
+# --- Feature Settings ---
+FEATURE_DIM: 1024
+
+# --- Evaluation Settings ---
+EVAL_DURING_TRAIN: True
+EVAL_DURING_TRAIN_EPOCHS: [0, 1, 2]
+
+# --- Checkpoint Settings ---
+USE_PREVIOUS_CHECKPOINT: True
+SAVE_CHECKPOINT_PER_EPOCH: 1
+MULTI_LAST_CHECKPOINTS: 4

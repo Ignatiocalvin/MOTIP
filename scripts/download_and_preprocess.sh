@@ -1,5 +1,14 @@
 #!/bin/bash
 
+# Install Python dependencies
+echo "Installing Python dependencies..."
+pip install -r requirements.txt
+
+# Create pretrains directory if it doesn't exist
+mkdir -p pretrains
+# Download the pretrained model
+wget -O pretrains/r50_deformable_detr_coco.pth https://github.com/MCG-NJU/MOTIP/releases/download/v0.1/r50_deformable_detr_coco.pth
+
 # P-DESTRE Dataset Download and Preprocessing Script
 
 set -e  # Exit on any error
@@ -21,7 +30,7 @@ cd data
 
 # Download the dataset
 echo "Downloading P-DESTRE dataset..."
-wget https://socia-lab.di.ubi.pt/%7Ehugomcp/dataset.tar
+# wget https://socia-lab.di.ubi.pt/%7Ehugomcp/dataset.tar
 
 # Extract the tar file
 echo "Extracting dataset..."
@@ -82,7 +91,7 @@ fi
 echo ""
 echo "Extracting frames from videos..."
 if [ -f "preprocess_pdestre.py" ]; then
-    python preprocess_pdestre.py
+    python3 preprocess_pdestre.py
 else
     echo "Warning: preprocess_pdestre.py not found in data/P-DESTRE/"
     echo "Skipping frame extraction. You may need to run it manually."
@@ -105,37 +114,37 @@ if [ -f "dataset.tar" ]; then
     rm dataset.tar
 fi
 
-cd ..
+# cd ..
 
-echo ""
-echo "=========================================="
-echo "Cloning RF-DETR Repository"
-echo "=========================================="
+# echo ""
+# echo "=========================================="
+# echo "Cloning RF-DETR Repository"
+# echo "=========================================="
 # Clone RF-DETR repository as sibling to MOTIP directory
-RFDETR_DIR="${MOTIP_ROOT}/../rf-detr"
-if [ ! -d "$RFDETR_DIR" ]; then
-    echo "Cloning RF-DETR repository..."
-    cd "${MOTIP_ROOT}/.."
-    git clone https://github.com/roboflow/rf-detr.git rf-detr
-    echo "RF-DETR repository cloned to: $RFDETR_DIR"
-else
-    echo "RF-DETR repository already exists at: $RFDETR_DIR"
-fi
+# RFDETR_DIR="${MOTIP_ROOT}/../rf-detr"
+# if [ ! -d "$RFDETR_DIR" ]; then
+#     echo "Cloning RF-DETR repository..."
+#     cd "${MOTIP_ROOT}/.."
+#     git clone https://github.com/roboflow/rf-detr.git rf-detr
+#     echo "RF-DETR repository cloned to: $RFDETR_DIR"
+# else
+#     echo "RF-DETR repository already exists at: $RFDETR_DIR"
+# fi
 
 # Apply compatibility fixes to RF-DETR's DINOv2 backbone
-echo ""
-echo "Applying transformers compatibility fixes to RF-DETR..."
-DINOV2_SOURCE="${MOTIP_ROOT}/rf-detr/rfdetr/models/backbone/dinov2_with_windowed_attn.py"
-DINOV2_TARGET="${RFDETR_DIR}/rfdetr/models/backbone/dinov2_with_windowed_attn.py"
+# echo ""
+# echo "Applying transformers compatibility fixes to RF-DETR..."
+# DINOV2_SOURCE="${MOTIP_ROOT}/rf-detr/rfdetr/models/backbone/dinov2_with_windowed_attn.py"
+# DINOV2_TARGET="${RFDETR_DIR}/rfdetr/models/backbone/dinov2_with_windowed_attn.py"
 
-if [ -f "$DINOV2_SOURCE" ]; then
-    echo "Copying fixed dinov2_with_windowed_attn.py to RF-DETR..."
-    cp "$DINOV2_SOURCE" "$DINOV2_TARGET"
-    echo "✓ Applied compatibility fixes for transformers v5.x"
-else
-    echo "Warning: Fixed DINOv2 file not found at: $DINOV2_SOURCE"
-    echo "You may need to manually apply transformers compatibility fixes."
-fi
+# if [ -f "$DINOV2_SOURCE" ]; then
+#     echo "Copying fixed dinov2_with_windowed_attn.py to RF-DETR..."
+#     cp "$DINOV2_SOURCE" "$DINOV2_TARGET"
+#     echo "✓ Applied compatibility fixes for transformers v5.x"
+# else
+#     echo "Warning: Fixed DINOv2 file not found at: $DINOV2_SOURCE"
+#     echo "You may need to manually apply transformers compatibility fixes."
+# fi
 
 cd "${MOTIP_ROOT}"
 
@@ -145,7 +154,7 @@ echo "Building CUDA Operators"
 echo "=========================================="
 echo "Building MultiScaleDeformableAttention CUDA extension..."
 cd "${MOTIP_ROOT}/models/ops"
-python setup.py build install
+python3 setup.py build install
 cd "${MOTIP_ROOT}"
 echo "CUDA operators built successfully!"
 

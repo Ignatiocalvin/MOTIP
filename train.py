@@ -4,9 +4,9 @@ import os
 import sys
 
 # Add RF-DETR to Python path (must be before any rfdetr imports)
-# RF-DETR is expected to be at ../rf-detr relative to MOTIP directory
+# RF-DETR is expected to be at ./rf-detr relative to MOTIP directory
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
-RFDETR_PATH = os.path.abspath(os.path.join(SCRIPT_DIR, '..', 'rf-detr'))
+RFDETR_PATH = os.path.abspath(os.path.join(SCRIPT_DIR, 'rf-detr'))
 print(f"[DEBUG] SCRIPT_DIR: {SCRIPT_DIR}")
 print(f"[DEBUG] Looking for RF-DETR at: {RFDETR_PATH}")
 print(f"[DEBUG] RF-DETR exists: {os.path.exists(RFDETR_PATH)}")
@@ -191,6 +191,18 @@ def train_engine(config: dict):
                 p.requires_grad = False     # only train the MOTIP part.
     logger.info(log="[DEBUG] Getting parameter groups...")
     param_groups = get_param_groups(model, config)
+    
+    # Add criterion's learnable parameters (e.g., task uncertainty weights)
+    # Use higher learning rate (10x) for meta-parameters as recommended by Kendall et al.
+    criterion_params = list(detr_criterion.parameters())
+    if criterion_params:
+        logger.info(log=f"[DEBUG] Adding {len(criterion_params)} learnable criterion parameters to optimizer (10x lr)")
+        param_groups.append({
+            "params": criterion_params,
+            "lr": config["LR"] * 10.0,  # Higher lr for meta-parameters
+            "weight_decay": 0.0,  # No weight decay for log_var parameters
+        })
+    
     optimizer = AdamW(
         params=param_groups,
         lr=config["LR"],
@@ -273,6 +285,8 @@ def train_engine(config: dict):
             save_checkpoint_every_n_steps=config.get("SAVE_CHECKPOINT_EVERY_N_STEPS", 0),
             resume_from_step=config.get("RESUME_FROM_STEP", 0) if epoch == train_states["start_epoch"] else 0,
             scheduler=scheduler,
+            # Concept bottleneck mode: "hard" or "soft"
+            concept_bottleneck_mode=config.get("MOTIP", {}).get("CONCEPT_BOTTLENECK_MODE", "hard"),
         )
 
         # Get learning rate:
@@ -324,6 +338,7 @@ def train_engine(config: dict):
                     area_thresh=config["AREA_THRESH"],
                     inference_only_detr=config["INFERENCE_ONLY_DETR"] if config["INFERENCE_ONLY_DETR"] is not None
                     else config["ONLY_DETR"],
+                    concept_bottleneck_mode=config.get("MOTIP", {}).get("CONCEPT_BOTTLENECK_MODE", "hard"),
                 )
                 eval_metrics.sync()
                 logger.metrics(
@@ -365,7 +380,7 @@ def train_one_epoch(
         separate_clip_norm: bool = True,
         max_clip_norm: float = 0.1,
         use_accelerate_clip_norm: bool = True,
-        logging_interval: int = 900,
+        logging_interval: int = 1000,
         # For multi last checkpoints:
         outputs_dir: str = None,
         is_last_epochs: bool = False,
@@ -374,6 +389,8 @@ def train_one_epoch(
         save_checkpoint_every_n_steps: int = 0,
         resume_from_step: int = 0,
         scheduler=None,
+        # Concept bottleneck mode: "hard" or "soft"
+        concept_bottleneck_mode: str = "hard",
 ):
     current_last_checkpoint_idx = 0
 
@@ -519,6 +536,7 @@ def train_one_epoch(
             # Need to prepare for MOTIP:
             seq_info = prepare_for_motip(
                 detr_outputs=detr_outputs, annotations=annotations, detr_indices=detr_indices,
+                concept_bottleneck_mode=concept_bottleneck_mode,
             )
             seq_info = model(seq_info=seq_info, part="trajectory_modeling")
             id_logits, id_gts, id_masks = model(
@@ -657,8 +675,10 @@ def train_one_epoch(
             if (step + 1) % accumulate_steps == 0:
                 if use_accelerate_clip_norm:
                     if separate_clip_norm:
-                        detr_grad_norm = accelerator.clip_grad_norm_(detr_params, max_norm=max_clip_norm)
-                        other_grad_norm = accelerator.clip_grad_norm_(other_params, max_norm=max_clip_norm)
+                        # Must unscale once before clipping separate param groups
+                        accelerator.unscale_gradients()
+                        detr_grad_norm = torch.nn.utils.clip_grad_norm_(detr_params, max_clip_norm)
+                        other_grad_norm = torch.nn.utils.clip_grad_norm_(other_params, max_clip_norm)
                     else:
                         detr_grad_norm = other_grad_norm = accelerator.clip_grad_norm_(model.parameters(), max_norm=max_clip_norm)
                 else:
@@ -900,7 +920,21 @@ def tensor_dict_index_select(tensor_dict, index, dim=0):
     return dict(res_tensor_dict)
 
 
-def prepare_for_motip(detr_outputs, annotations, detr_indices):
+def prepare_for_motip(detr_outputs, annotations, detr_indices, concept_bottleneck_mode: str = "hard"):
+    """
+    Prepare DETR outputs for MOTIP ID prediction.
+    
+    Args:
+        detr_outputs: Dictionary containing DETR predictions
+        annotations: List of annotation dictionaries
+        detr_indices: Matching indices from Hungarian matcher
+        concept_bottleneck_mode: "hard" or "soft"
+            - "hard": Use argmax'd discrete concept labels (no gradient flow)
+            - "soft": Use softmax probability distributions (enables gradient flow)
+    
+    Returns:
+        Dictionary containing trajectory and unknown features, boxes, ids, and concepts
+    """
     _B, _T = len(annotations), len(annotations[0])
     _G, _, _N = annotations[0][0]["trajectory_id_labels"].shape
     _device = detr_outputs["pred_logits"].device
@@ -912,11 +946,15 @@ def prepare_for_motip(detr_outputs, annotations, detr_indices):
         pred_concepts_list = detr_outputs["pred_concepts"]
         if isinstance(pred_concepts_list, list):
             _num_concepts = len(pred_concepts_list)
+            # Calculate total concept classes for soft mode
+            _total_concept_classes = sum(c.shape[-1] for c in pred_concepts_list)
         else:
             _num_concepts = 1
+            _total_concept_classes = pred_concepts_list.shape[-1]
             pred_concepts_list = [pred_concepts_list]
     else:
         _num_concepts = 0
+        _total_concept_classes = 0
         pred_concepts_list = []
     
     # Init corresponding variables:
@@ -932,9 +970,16 @@ def prepare_for_motip(detr_outputs, annotations, detr_indices):
     unknown_features = torch.zeros((_B, _G, _T, _N, _feature_dim), dtype=torch.float32, device=_device)
     
     # Initialize concept tensors if concepts are available
+    # Shape depends on mode:
+    # - "hard": (B, G, T, N, num_concepts) integer labels
+    # - "soft": (B, G, T, N, total_concept_classes) float probabilities
     if _num_concepts > 0:
-        trajectory_concepts = torch.zeros((_B, _G, _T, _N, _num_concepts), dtype=torch.int64, device=_device)
-        unknown_concepts = torch.zeros((_B, _G, _T, _N, _num_concepts), dtype=torch.int64, device=_device)
+        if concept_bottleneck_mode == "soft":
+            trajectory_concepts = torch.zeros((_B, _G, _T, _N, _total_concept_classes), dtype=torch.float32, device=_device)
+            unknown_concepts = torch.zeros((_B, _G, _T, _N, _total_concept_classes), dtype=torch.float32, device=_device)
+        else:
+            trajectory_concepts = torch.zeros((_B, _G, _T, _N, _num_concepts), dtype=torch.int64, device=_device)
+            unknown_concepts = torch.zeros((_B, _G, _T, _N, _num_concepts), dtype=torch.int64, device=_device)
     
     for b in range(_B):
         for t in range(_T):
@@ -945,15 +990,27 @@ def prepare_for_motip(detr_outputs, annotations, detr_indices):
             
             # Get concept predictions for matched detections
             if _num_concepts > 0:
-                # For each concept, get the predicted class (argmax) for matched detections
-                detr_concepts = []
-                for concept_idx in range(_num_concepts):
-                    concept_logits = pred_concepts_list[concept_idx][flatten_idx]  # (N_queries, n_classes)
-                    concept_preds = concept_logits.argmax(dim=-1)  # (N_queries,)
-                    matched_concept_preds = concept_preds[detr_indices[flatten_idx][0][go_back_detr_idxs]]
-                    detr_concepts.append(matched_concept_preds)
-                # Stack to (N_matched, num_concepts)
-                detr_concepts = torch.stack(detr_concepts, dim=-1)
+                if concept_bottleneck_mode == "soft":
+                    # SOFT MODE: Get softmax probabilities and concatenate all concepts
+                    # This preserves gradient flow for end-to-end training
+                    concept_probs_list = []
+                    for concept_idx in range(_num_concepts):
+                        concept_logits = pred_concepts_list[concept_idx][flatten_idx]  # (N_queries, n_classes)
+                        concept_probs = torch.nn.functional.softmax(concept_logits, dim=-1)  # (N_queries, n_classes)
+                        matched_concept_probs = concept_probs[detr_indices[flatten_idx][0][go_back_detr_idxs]]
+                        concept_probs_list.append(matched_concept_probs)
+                    # Concatenate all concept probabilities: (N_matched, total_concept_classes)
+                    detr_concepts = torch.cat(concept_probs_list, dim=-1)
+                else:
+                    # HARD MODE: Use argmax'd discrete labels (original behavior)
+                    detr_concepts = []
+                    for concept_idx in range(_num_concepts):
+                        concept_logits = pred_concepts_list[concept_idx][flatten_idx]  # (N_queries, n_classes)
+                        concept_preds = concept_logits.argmax(dim=-1)  # (N_queries,)
+                        matched_concept_preds = concept_preds[detr_indices[flatten_idx][0][go_back_detr_idxs]]
+                        detr_concepts.append(matched_concept_preds)
+                    # Stack to (N_matched, num_concepts)
+                    detr_concepts = torch.stack(detr_concepts, dim=-1)
             
             for group in range(_G):
                 _curr_traj_ann_idxs = annotations[b][t]["trajectory_ann_idxs"][group, 0, :]

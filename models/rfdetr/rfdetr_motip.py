@@ -21,18 +21,16 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-# Add rf-detr to path - RF-DETR uses src/ layout
-RFDETR_BASE = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..', '..', 'rf-detr'))
-RFDETR_PATH = os.path.join(RFDETR_BASE, 'src')
-print(f"[DEBUG rfdetr_motip.py] RFDETR_BASE: {RFDETR_BASE}")
-print(f"[DEBUG rfdetr_motip.py] RFDETR_PATH (src/): {RFDETR_PATH}")
-print(f"[DEBUG rfdetr_motip.py] src/ exists: {os.path.exists(RFDETR_PATH)}")
+# Add rf-detr to path - RF-DETR package is at rf-detr/rfdetr/
+RFDETR_PATH = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..', 'rf-detr'))
+print(f"[DEBUG rfdetr_motip.py] RFDETR_PATH: {RFDETR_PATH}")
+print(f"[DEBUG rfdetr_motip.py] RF-DETR exists: {os.path.exists(RFDETR_PATH)}")
 if os.path.exists(RFDETR_PATH):
     rfdetr_pkg = os.path.join(RFDETR_PATH, 'rfdetr')
-    print(f"[DEBUG rfdetr_motip.py] rfdetr package at src/rfdetr exists: {os.path.exists(rfdetr_pkg)}")
+    print(f"[DEBUG rfdetr_motip.py] rfdetr package exists: {os.path.exists(rfdetr_pkg)}")
 if RFDETR_PATH not in sys.path:
     sys.path.insert(0, RFDETR_PATH)
-    print(f"[INFO rfdetr_motip.py] Added RF-DETR src/ to sys.path: {RFDETR_PATH}")
+    print(f"[INFO rfdetr_motip.py] Added RF-DETR to sys.path: {RFDETR_PATH}")
 
 from rfdetr.models.backbone import build_backbone
 from rfdetr.models.transformer import build_transformer

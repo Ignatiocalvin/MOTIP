@@ -25,6 +25,7 @@ class IDDecoder(nn.Module):
             # Concept integration parameters
             concept_classes: Optional[List[tuple]] = None,  # [(name, n_classes, unknown_label), ...]
             concept_dim: int = 0,  # Dimension of concept embeddings (0 = disabled)
+            concept_bottleneck_mode: str = "hard",  # "hard" or "soft"
     ):
         super().__init__()
 
@@ -44,20 +45,27 @@ class IDDecoder(nn.Module):
         self.num_concepts = len(self.concept_classes)
         self.concept_dim = concept_dim if self.num_concepts > 0 else 0
         
+        # Concept bottleneck mode: "hard" uses argmax'd labels, "soft" uses probabilities
+        self.concept_bottleneck_mode = concept_bottleneck_mode.lower()
+        if self.concept_bottleneck_mode not in ["hard", "soft"]:
+            raise ValueError(f"concept_bottleneck_mode must be 'hard' or 'soft', got '{concept_bottleneck_mode}'")
+        
         # Total embedding dimension: features + concepts + id
         self.total_embed_dim = self.feature_dim + self.concept_dim + self.id_dim
         self.n_heads = self.total_embed_dim // self.head_dim
         
-        # Concept embedding layers: convert one-hot concept labels to embeddings
+        # Concept embedding layers: convert concept representations to embeddings
         if self.num_concepts > 0 and self.concept_dim > 0:
             # Calculate total input size for concept embedding
-            # Each concept is represented as one-hot, so sum all concept class counts
+            # Each concept is represented as one-hot (hard) or probability distribution (soft)
             total_concept_classes = sum(n_classes for _, n_classes, _ in self.concept_classes)
+            self.total_concept_classes = total_concept_classes
             self.concept_to_embed = nn.Linear(total_concept_classes, self.concept_dim, bias=False)
-            # Store class counts for one-hot encoding
+            # Store class counts for one-hot encoding (hard mode) or probability handling (soft mode)
             self.concept_class_counts = [n_classes for _, n_classes, _ in self.concept_classes]
         else:
             self.concept_to_embed = None
+            self.total_concept_classes = 0
             self.concept_class_counts = []
 
         self.word_to_embed = nn.Linear(self.num_id_vocabulary + 1, self.id_dim, bias=False)
@@ -200,12 +208,18 @@ class IDDecoder(nn.Module):
         
         # Get concept embeddings if enabled
         if self.num_concepts > 0 and self.concept_dim > 0:
-            # Concepts are in seq_info as (B, G, T, N, num_concepts) integer labels
+            # In "soft" mode: concepts are probability distributions (B, G, T, N, total_concept_classes)
+            # In "hard" mode: concepts are integer labels (B, G, T, N, num_concepts)
             trajectory_concepts = seq_info.get("trajectory_concepts", None)
             unknown_concepts = seq_info.get("unknown_concepts", None)
             
             if trajectory_concepts is not None:
-                trajectory_concept_embeds = self.concept_labels_to_embed(trajectory_concepts)
+                if self.concept_bottleneck_mode == "soft":
+                    # Soft mode: concepts are already probability distributions
+                    trajectory_concept_embeds = self.concept_probs_to_embed(trajectory_concepts)
+                else:
+                    # Hard mode: concepts are integer labels, convert to one-hot then embed
+                    trajectory_concept_embeds = self.concept_labels_to_embed(trajectory_concepts)
             else:
                 # Generate zero concept embeddings if not provided (fallback)
                 trajectory_concept_embeds = torch.zeros(
@@ -214,7 +228,12 @@ class IDDecoder(nn.Module):
                 )
             
             if unknown_concepts is not None:
-                unknown_concept_embeds = self.concept_labels_to_embed(unknown_concepts)
+                if self.concept_bottleneck_mode == "soft":
+                    # Soft mode: concepts are already probability distributions
+                    unknown_concept_embeds = self.concept_probs_to_embed(unknown_concepts)
+                else:
+                    # Hard mode: concepts are integer labels, convert to one-hot then embed
+                    unknown_concept_embeds = self.concept_labels_to_embed(unknown_concepts)
             else:
                 # Generate zero concept embeddings if not provided (fallback)
                 unknown_concept_embeds = torch.zeros(
@@ -355,7 +374,7 @@ class IDDecoder(nn.Module):
 
     def concept_labels_to_embed(self, concept_labels):
         """
-        Convert concept labels to embeddings.
+        Convert concept labels to embeddings (HARD mode).
         
         Args:
             concept_labels: Tensor of shape (..., num_concepts) containing integer class labels
@@ -387,6 +406,40 @@ class IDDecoder(nn.Module):
         
         # Project to concept embedding space: (..., concept_dim)
         concept_embeds = self.concept_to_embed(concept_one_hot)
+        
+        return concept_embeds
+
+    def concept_probs_to_embed(self, concept_probs):
+        """
+        Convert concept probability distributions to embeddings (SOFT mode).
+        This method is differentiable and allows gradient flow back to concept prediction heads.
+        
+        Args:
+            concept_probs: Tensor of shape (..., total_concept_classes) containing concatenated
+                          softmax probability distributions for all concepts.
+                          For example, if we have 2 concepts with 3 and 13 classes:
+                          concept_probs[..., :3] = P(gender), concept_probs[..., 3:16] = P(upper_body)
+        
+        Returns:
+            Tensor of shape (..., concept_dim) containing the concept embeddings
+        """
+        if self.concept_to_embed is None or self.num_concepts == 0:
+            raise ValueError("Concept embedding is not enabled in this IDDecoder")
+        
+        # Validate input shape
+        expected_last_dim = self.total_concept_classes
+        if concept_probs.shape[-1] != expected_last_dim:
+            raise ValueError(
+                f"Expected concept_probs to have last dimension {expected_last_dim}, "
+                f"got {concept_probs.shape[-1]}"
+            )
+        
+        # Convert to correct dtype if necessary
+        concept_probs = concept_probs.to(self.dtype)
+        
+        # Project to concept embedding space: (..., concept_dim)
+        # This is differentiable - gradients will flow back through the probabilities
+        concept_embeds = self.concept_to_embed(concept_probs)
         
         return concept_embeds
 

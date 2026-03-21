@@ -1,0 +1,105 @@
+# RF-DETR Large MOTIP Configuration for P-DESTRE
+# BASE MODEL: No concept prediction (pure detection + ID tracking)
+# For fair comparison with R50 base model (r50_motip_pdestre_no_concepts)
+
+SUPER_CONFIG_PATH: ./configs/r50_deformable_detr_motip_dancetrack.yaml
+
+# --- Override DETR Framework ---
+DETR_FRAMEWORK: rf_detr
+
+# --- Data Settings ---
+DATASETS: [P-DESTRE]
+DATASET_SPLITS: [Train_0]  # Will be overridden by training script
+INFERENCE_DATASET: P-DESTRE
+INFERENCE_SPLIT: val_0
+
+# --- Sampling Settings (match R50 models for fair comparison) ---
+SAMPLE_STEPS: [0, ]
+SAMPLE_LENGTHS: [15, ]
+SAMPLE_INTERVALS: [4, ]
+
+# --- RF-DETR Specific Settings ---
+RFDETR:
+  # Model size: Large (DINOv2-Large backbone)
+  ENCODER: dinov2_windowed_large
+  RESOLUTION: 588                  # Input resolution (divisible by 28)
+  HIDDEN_DIM: 1024                 # Hidden dimension (large model)
+  DEC_LAYERS: 6                    # Number of decoder layers
+  PATCH_SIZE: 14                   # ViT patch size
+  NUM_WINDOWS: 2                   # Windowed attention
+  POSITIONAL_ENCODING_SIZE: 37    
+  OUT_FEATURE_INDEXES: [3, 6, 9, 12]
+  PROJECTOR_SCALE: [P4]
+  
+  # Attention settings
+  SA_NHEADS: 16                    # Self-attention heads (large model)
+  CA_NHEADS: 32                    # Cross-attention heads (large model)
+  DEC_N_POINTS: 4
+  
+  # Architecture settings
+  TWO_STAGE: True
+  LITE_REFPOINT_REFINE: True
+  BBOX_REPARAM: True
+  GROUP_DETR: 1
+  IA_BCE_LOSS: True
+  
+  # Backbone settings
+  LAYER_NORM: True
+  RMS_NORM: False
+  FREEZE_ENCODER: False
+  BACKBONE_LORA: False
+  GRADIENT_CHECKPOINTING: False
+  LOAD_DINOV2_WEIGHTS: True
+  
+  # Pretrained weights
+  PRETRAIN_WEIGHTS: ./pretrains/rf-detr-large.pth
+
+# --- Model Settings ---
+NUM_CLASSES: 1
+DETR_NUM_QUERIES: 300
+DETR_AUX_LOSS: True
+DETR_HIDDEN_DIM: 1024
+
+# --- NO CONCEPTS (Pure MOTIP without semantic attributes) ---
+# Override base config's NUM_CONCEPTS: 3 to disable concept prediction
+NUM_CONCEPTS: 0
+# Intentionally omit MOTIP.CONCEPT_CLASSES → N_CONCEPTS defaults to 0
+
+# --- Training Settings ---
+EPOCHS: 3
+BATCH_SIZE: 1                      # RF-DETR Large needs more memory
+LR: 1.0e-4
+LR_BACKBONE_SCALE: 0.1
+LR_WARMUP_EPOCHS: 0
+WEIGHT_DECAY: 0.0005
+MAX_CLIP_NORM: 0.1
+ACCUMULATE_STEPS: 2                # Simulate batch size 2
+
+# --- Disable DeformableDETR pretrain (RF-DETR uses own weights) ---
+DETR_PRETRAIN: null
+
+# --- Tracking Settings ---
+NUM_WORKERS: 5
+PREFETCH_FACTOR: 4
+SIZE_DIVISIBILITY: 32
+
+# --- ID Prediction Settings ---
+NUM_ID_VOCABULARY: 1000
+ID_DIM: 256
+NUM_ID_DECODER_LAYERS: 3
+HEAD_DIM: 64
+REL_PE_LENGTH: 50
+USE_AUX_LOSS: True
+USE_SHARED_AUX_HEAD: True
+
+# --- Feature Settings ---
+FEATURE_DIM: 1024                  # Must match RFDETR.HIDDEN_DIM
+
+# --- Evaluation Settings ---
+EVAL_DURING_TRAIN: True
+EVAL_DURING_TRAIN_EPOCHS: [0, 1, 2]
+
+# --- Checkpoint Settings ---
+USE_PREVIOUS_CHECKPOINT: True
+SAVE_CHECKPOINT_PER_EPOCH: 1
+MULTI_LAST_CHECKPOINTS: 4

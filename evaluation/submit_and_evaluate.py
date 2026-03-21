@@ -99,6 +99,7 @@ def submit_and_evaluate(config: dict):
         inference_only_detr=config["INFERENCE_ONLY_DETR"] if config["INFERENCE_ONLY_DETR"] is not None
         else config["ONLY_DETR"],
         dtype=config.get("INFERENCE_DTYPE", "FP32"),
+        concept_bottleneck_mode=config.get("MOTIP", {}).get("CONCEPT_BOTTLENECK_MODE", "hard"),
     )
 
     if metrics is not None:
@@ -136,6 +137,7 @@ def submit_and_evaluate_one_model(
         area_thresh: int = 0,
         inference_only_detr: bool = False,
         dtype: str = "FP32",
+        concept_bottleneck_mode: str = "hard",
 ):
     # Build the datasets:
     inference_dataset = dataset_classes[dataset](
@@ -206,6 +208,7 @@ def submit_and_evaluate_one_model(
             area_thresh=area_thresh,
             only_detr=inference_only_detr,
             dtype=dtype,
+            concept_bottleneck_mode=concept_bottleneck_mode,
         )
         if is_fake:
             logger.info(

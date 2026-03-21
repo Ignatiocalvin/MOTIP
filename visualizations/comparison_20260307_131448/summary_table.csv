@@ -1,0 +1,4 @@
+Model,num_folds
+Base MOTIP (No Concepts),3
+Base MOTIP (2 Concepts for ID),3
+Base MOTIP (7 Concepts for ID),3
