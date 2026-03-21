@@ -7,6 +7,10 @@ outputs_slim/
 logs/
 outputs/
 
+# Cuda run
+models/ops/cuda*.run
+Miniconda3*.sh
+
 # Model checkpoints and weights (but allow outputs/)
 *.pth
 *.pt
