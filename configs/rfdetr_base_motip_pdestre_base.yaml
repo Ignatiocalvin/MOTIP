@@ -1,6 +1,7 @@
-# RF-DETR Large MOTIP Configuration for P-DESTRE
+# RF-DETR Base MOTIP Configuration for P-DESTRE
 # BASE MODEL: No concept prediction (pure detection + ID tracking)
-# For fair comparison with R50 base model (r50_motip_pdestre_no_concepts)
+# For FAIR comparison with R50 Deformable DETR base model
+# Uses DINOv2-Base instead of Large for comparable model size
 
 SUPER_CONFIG_PATH: ./configs/r50_deformable_detr_motip_dancetrack.yaml
 
@@ -13,27 +14,27 @@ DATASET_SPLITS: [Train_0]  # Will be overridden by training script
 INFERENCE_DATASET: P-DESTRE
 INFERENCE_SPLIT: val_0
 
-# --- Sampling Settings (match R50 models for fair comparison) ---
+# --- Sampling Settings (REDUCED for memory efficiency) ---
 SAMPLE_STEPS: [0, ]
-SAMPLE_LENGTHS: [15, ]
-SAMPLE_INTERVALS: [4, ]
+SAMPLE_LENGTHS: [5, ]    # Reduced from 15 to 5 for less memory
+SAMPLE_INTERVALS: [8, ]  # Increased from 4 to 8 for less memory
 
 # --- RF-DETR Specific Settings ---
 RFDETR:
-  # Model size: Large (DINOv2-Large backbone)
-  ENCODER: dinov2_windowed_large
-  RESOLUTION: 588                  # Input resolution (divisible by 28)
-  HIDDEN_DIM: 1024                 # Hidden dimension (large model)
+  # Model size: Base (DINOv2-Base backbone) - comparable to ResNet-50
+  ENCODER: dinov2_windowed_base
+  RESOLUTION: 392                  # Input resolution (divisible by 14, smaller for base)
+  HIDDEN_DIM: 256                  # Hidden dimension (base model, same as R50)
   DEC_LAYERS: 6                    # Number of decoder layers
   PATCH_SIZE: 14                   # ViT patch size
   NUM_WINDOWS: 2                   # Windowed attention
-  POSITIONAL_ENCODING_SIZE: 37    
+  POSITIONAL_ENCODING_SIZE: 25     # 392/14 - 3 = 25
   OUT_FEATURE_INDEXES: [3, 6, 9, 12]
   PROJECTOR_SCALE: [P4]
   
-  # Attention settings
-  SA_NHEADS: 16                    # Self-attention heads (large model)
-  CA_NHEADS: 32                    # Cross-attention heads (large model)
+  # Attention settings (Base model)
+  SA_NHEADS: 8                     # Self-attention heads (base model)
+  CA_NHEADS: 16                    # Cross-attention heads (base model)
   DEC_N_POINTS: 4
   
   # Architecture settings
@@ -48,17 +49,17 @@ RFDETR:
   RMS_NORM: False
   FREEZE_ENCODER: False
   BACKBONE_LORA: False
-  GRADIENT_CHECKPOINTING: False
+  GRADIENT_CHECKPOINTING: True   # Enable to save memory
   LOAD_DINOV2_WEIGHTS: True
   
   # Pretrained weights
-  PRETRAIN_WEIGHTS: ./pretrains/rf-detr-large.pth
+  PRETRAIN_WEIGHTS: ./pretrains/rf-detr-base-coco.pth
 
 # --- Model Settings ---
 NUM_CLASSES: 1
 DETR_NUM_QUERIES: 300
 DETR_AUX_LOSS: True
-DETR_HIDDEN_DIM: 1024
+DETR_HIDDEN_DIM: 256               # Match base model dimension
 
 # --- NO CONCEPTS (Pure MOTIP without semantic attributes) ---
 # Override base config's NUM_CONCEPTS: 3 to disable concept prediction
@@ -66,8 +67,8 @@ NUM_CONCEPTS: 0
 # Intentionally omit MOTIP.CONCEPT_CLASSES → N_CONCEPTS defaults to 0
 
 # --- Training Settings ---
-EPOCHS: 10
-BATCH_SIZE: 1                      # RF-DETR Large needs more memory
+EPOCHS: 1
+BATCH_SIZE: 1                      # Start with 1, can increase if memory allows
 LR: 1.0e-4
 LR_BACKBONE_SCALE: 0.1
 LR_WARMUP_EPOCHS: 0
@@ -93,11 +94,11 @@ USE_AUX_LOSS: True
 USE_SHARED_AUX_HEAD: True
 
 # --- Feature Settings ---
-FEATURE_DIM: 1024                  # Must match RFDETR.HIDDEN_DIM
+FEATURE_DIM: 256                   # Must match RFDETR.HIDDEN_DIM
 
 # --- Evaluation Settings ---
 EVAL_DURING_TRAIN: True
-EVAL_DURING_TRAIN_EPOCHS: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]
+EVAL_DURING_TRAIN_EPOCHS: [0]
 
 # --- Checkpoint Settings ---
 USE_PREVIOUS_CHECKPOINT: True
