@@ -28,7 +28,7 @@ RFDETR:
   DEC_LAYERS: 6                    # Number of decoder layers
   PATCH_SIZE: 14                   # ViT patch size
   NUM_WINDOWS: 2                   # Windowed attention
-  POSITIONAL_ENCODING_SIZE: 25     # 392/14 - 3 = 25
+  POSITIONAL_ENCODING_SIZE: 28     # 392/14 = 28 (matches DINOv2-Base)
   OUT_FEATURE_INDEXES: [3, 6, 9, 12]
   PROJECTOR_SCALE: [P4]
   
