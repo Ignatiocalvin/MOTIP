@@ -1,0 +1,67 @@
+# R50 Deformable DETR MOTIP Configuration for P-DESTRE
+# 7-CONCEPT MODEL (Learnable Task Weights): All P-DESTRE semantic attributes
+# Uses uncertainty-based learnable weighting (Kendall et al. 2018)
+# Solves gradient competition between detection and concept prediction
+
+SUPER_CONFIG_PATH: ./configs/r50_deformable_detr_motip_dancetrack.yaml
+
+# --- Data Settings ---
+DATASETS: [P-DESTRE]
+DATASET_SPLITS: [Train_1]  # Will be overridden by training script for different folds
+INFERENCE_DATASET: P-DESTRE
+INFERENCE_SPLIT: val_1
+
+# --- Sampling Settings ---
+SAMPLE_STEPS: [0, ]
+SAMPLE_LENGTHS: [15, ]
+SAMPLE_INTERVALS: [4, ]
+
+# --- Override old NUM_CONCEPTS (from base config) ---
+NUM_CONCEPTS: 7
+
+# --- MOTIP 7-Concept Settings with LEARNABLE Weights ---
+MOTIP:
+  N_CONCEPTS: 7
+  CONCEPT_DIM: 224                 # 32 dimensions per concept × 7 concepts = 224
+  CONCEPT_BOTTLENECK_MODE: "hard"  # Argmax during forward pass
+  CONCEPT_CLASSES:
+    - ["gender", 3, 2]             # 0=Male, 1=Female, 2=Unknown
+    - ["hairstyle", 6, 5]          # 0=Bald, 1=Short, 2=Medium, 3=Long, 4=Horse Tail, 5=Unknown
+    - ["head_accessories", 5, 4]   # 0=Hat, 1=Scarf, 2=Neckless, 3=Cannot see, 4=Unknown
+    - ["upper_body", 13, 12]       # 0=T-Shirt, 1=Polo, 2=Sweater, 3=Jacket, 4=Coat, 5=Suit, 6=Dress, 7=T-Shirt+Jacket, 8=T-Shirt+Sweater, 9=Shirt, 10=Long Sleeve, 11=Cannot see, 12=Unknown
+    - ["lower_body", 10, 9]        # 0=Jeans, 1=Trousers, 2=Shorts, 3=Skirt, 4=Sport Trousers, 5=Leggings, 6=Skirt-Trousers, 7=Dress, 8=Cannot see, 9=Unknown
+    - ["feet", 7, 6]               # 0=Sport Shoe, 1=Sneakers, 2=Leather Shoes, 3=Boots, 4=High Heels, 5=Cannot see, 6=Unknown
+    - ["accessories", 8, 7]        # 0=Bag, 1=Backpack, 2=Purse, 3=Umbrella, 4=Luggage, 5=Cart, 6=Cannot see, 7=Unknown
+  DETR_LOSSES: [labels, boxes, cardinality, concepts]
+  # NOTE: CONCEPT_LOSS_COEF is NOT used when USE_LEARNABLE_TASK_WEIGHTS=True
+  # The model will learn sigma_detection and sigma_concepts automatically
+
+# --- LEARNABLE TASK WEIGHTS (Kendall et al. 2018) ---
+# Enables uncertainty-based automatic loss balancing
+# Model learns two parameters: log_var_detection and log_var_concepts
+# Final weights: w_detection = 1/(2*sigma_detection^2), w_concepts = 1/(2*sigma_concepts^2)
+# Plus regularization terms: 0.5*log(sigma_detection^2) + 0.5*log(sigma_concepts^2)
+USE_LEARNABLE_TASK_WEIGHTS: True
+
+# --- Training Settings ---
+EPOCHS: 3
+BATCH_SIZE: 1
+LR: 1.0e-4
+LR_BACKBONE_SCALE: 0.1
+LR_WARMUP_EPOCHS: 0
+WEIGHT_DECAY: 0.0005
+MAX_CLIP_NORM: 0.1
+ACCUMULATE_STEPS: 2
+
+# --- IMPORTANT: Fresh training needed for learnable weights ---
+# The optimizer structure changes when adding learnable weight parameters
+# Must NOT resume from manual checkpoint
+USE_PREVIOUS_CHECKPOINT: False
+
+# --- Evaluation Settings ---
+EVAL_DURING_TRAIN: True
+EVAL_DURING_TRAIN_EPOCHS: [0, 1, 2]
+
+# --- Checkpoint Settings ---
+SAVE_CHECKPOINT_PER_EPOCH: 1
+MULTI_LAST_CHECKPOINTS: 4
