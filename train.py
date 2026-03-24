@@ -167,6 +167,7 @@ def train_engine(config: dict):
     logger.info(log="[DEBUG] Starting build_motip...")
     model, detr_criterion = build_motip(config=config)
     logger.info(log="[DEBUG] build_motip completed successfully")
+    
     # Load the pre-trained DETR (skip for RF-DETR which uses its own backbone weights):
     if config.get("DETR_PRETRAIN") is not None:
         load_detr_pretrain(
@@ -178,6 +179,36 @@ def train_engine(config: dict):
         )
     else:
         logger.info(log="Skipping DETR pretrain loading (training from scratch or using backbone pretraining).")
+    
+    # Load RF-DETR pretrained weights if specified
+    if config.get("DETR_FRAMEWORK", "").lower() in ["rf_detr", "rfdetr", "rf-detr"]:
+        rfdetr_config = config.get("RFDETR", {})
+        pretrain_weights = rfdetr_config.get("PRETRAIN_WEIGHTS")
+        if pretrain_weights is not None and os.path.exists(pretrain_weights):
+            logger.info(log=f"Loading RF-DETR pretrained weights from '{pretrain_weights}'...")
+            checkpoint = torch.load(pretrain_weights, map_location='cpu', weights_only=False)
+            
+            # Extract model state dict (handle different checkpoint formats)
+            if 'model' in checkpoint:
+                state_dict = checkpoint['model']
+            elif 'model_state_dict' in checkpoint:
+                state_dict = checkpoint['model_state_dict']
+            else:
+                state_dict = checkpoint
+            
+            # Load weights into the DETR model (strict=False to allow missing/extra keys)
+            # RF-DETR weights go into model.detr
+            missing_keys, unexpected_keys = model.detr.load_state_dict(state_dict, strict=False)
+            
+            logger.success(log=f"Loaded RF-DETR pretrained weights from '{pretrain_weights}'")
+            if missing_keys:
+                logger.info(log=f"Missing keys (expected for new heads): {missing_keys[:10]}...")
+            if unexpected_keys:
+                logger.info(log=f"Unexpected keys (can be ignored): {unexpected_keys[:10]}...")
+        elif pretrain_weights is not None:
+            logger.warning(log=f"RF-DETR pretrain weights specified but not found: '{pretrain_weights}'")
+        else:
+            logger.info(log="No RF-DETR pretrain weights specified, training from scratch.")
     # Build Loss Function:
     logger.info(log="[DEBUG] Building ID criterion...")
     id_criterion = build_id_criterion(config=config)
@@ -380,7 +411,7 @@ def train_one_epoch(
         separate_clip_norm: bool = True,
         max_clip_norm: float = 0.1,
         use_accelerate_clip_norm: bool = True,
-        logging_interval: int = 1000,
+        logging_interval: int = 10000,
         # For multi last checkpoints:
         outputs_dir: str = None,
         is_last_epochs: bool = False,

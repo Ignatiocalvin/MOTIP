@@ -4,10 +4,10 @@
 #SBATCH --gres=gpu:1
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=8
-#SBATCH --time=240:00:00
+#SBATCH --time=72:00:00
 #SBATCH --mem=32G
-#SBATCH --output=logs/motip_rfdetr_all_folds_%j.out
-#SBATCH --error=logs/motip_rfdetr_all_folds_%j.err
+#SBATCH --output=logs/motip_rfdetr_base_all_folds_%j.out
+#SBATCH --error=logs/motip_rfdetr_base_all_folds_%j.err
 
 # ========================================
 # Setup logging for non-sbatch execution
@@ -15,7 +15,7 @@
 if [ -z "$SLURM_JOB_ID" ]; then
     # Not running under Slurm, setup manual logging
     mkdir -p logs
-    LOG_FILE="logs/motip_rfdetr_large_all_folds_$(date +%Y%m%d_%H%M%S).log"
+    LOG_FILE="logs/motip_rfdetr_base_all_folds_$(date +%Y%m%d_%H%M%S).log"
     echo "Logging to: $LOG_FILE"
     # Redirect all output to log file while also displaying on terminal
     exec > >(tee -a "$LOG_FILE") 2>&1
@@ -32,21 +32,36 @@ if command -v module &> /dev/null; then
     module load devel/cuda/11.8 || echo "Could not load CUDA module, assuming CUDA is already available"
 fi
 
-# Make sure we're not in any virtual environment
+# Make sure we're not in any virtual environment - remove .venv from PATH completely
 if [[ "$VIRTUAL_ENV" != "" ]]; then
-    deactivate
+    deactivate || true
 fi
+export PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:$PATH"
 
-# Source conda (if available) - use base environment which has PyTorch
+# Source conda and activate MOTIP environment
 if [ -f ~/miniconda3/etc/profile.d/conda.sh ]; then
     source ~/miniconda3/etc/profile.d/conda.sh
-    conda activate base
+    conda deactivate 2>/dev/null || true  # Deactivate any active env first
+    conda activate MOTIP
+    echo "Activated conda MOTIP environment"
 elif [ -f ~/anaconda3/etc/profile.d/conda.sh ]; then
     source ~/anaconda3/etc/profile.d/conda.sh
-    conda activate base
+    conda deactivate 2>/dev/null || true
+    conda activate MOTIP
+    echo "Activated conda MOTIP environment"
 else
-    echo "Conda not found, using system Python"
+    echo "ERROR: Conda not found"
+    exit 1
 fi
+
+# Verify we're using the right Python
+PYTHON_PATH=$(python -c "import sys; print(sys.executable)")
+if [[ "$PYTHON_PATH" == *".venv"* ]]; then
+    echo "ERROR: Still using .venv! Python: $PYTHON_PATH"
+    exit 1
+fi
+echo "Using Python from: $PYTHON_PATH"
+echo "Python version: $(python --version)"
 
 # Set CUDA environment (adjust based on your GPU)
 export TORCH_CUDA_ARCH_LIST="8.9"  # RTX 4070 Ti SUPER (Ada Lovelace)
