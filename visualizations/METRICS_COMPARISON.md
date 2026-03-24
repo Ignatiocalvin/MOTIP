@@ -6,7 +6,16 @@
 - N_CONCEPTS: 0 (no concept prediction at all)
 - CONCEPT_DIM: 0
 - ID decoder: Enabled (standard MOTIP)
+- Backbone: ResNet-50 (CNN)
 - Purpose: Baseline to measure contribution of semantic concepts
+
+**RF-DETR Base MOTIP (No Concepts — Fold 0):**
+- N_CONCEPTS: 0 (no concept prediction at all)
+- CONCEPT_DIM: 0
+- ID decoder: Enabled (standard MOTIP)
+- Backbone: DINOv2-Base (Vision Transformer)
+- Pre-training: Self-supervised on 142M images
+- Purpose: Compare ViT vs CNN features for re-identification
 
 **Broken MOTIP (ONLY_DETR: True — Fold 0):**
 - ONLY_DETR: True — ID decoder disabled during training AND inference
@@ -30,21 +39,24 @@
 
 ---
 
-## Training Metrics (Epoch 2 - Final)
+## Training Metrics (Epoch 0/2 - Final)
 
-| Metric | Base (0) | 2-Concept | 3-Concept | 7-Concept (Manual) | 7-Concept (Learnable) |
-|--------|----------|-----------|-----------|--------------------|-----------------------|
-| **Total Loss** | 4.26 | 76.77 | 65.27 | 213.85 | **3.28** ✓ |
-| **DETR Loss** | 3.74 | 76.32 | 64.74 | 213.34 | **2.78** ✓ |
-| **ID Loss** | 0.52 | 0.45 | 0.53 | 0.51 | 0.50 |
-| **Detection BBox** | **0.0198** | 0.0222 | 0.0230 | 0.0294 | **0.0095** ✓✓ |
-| **Detection GIoU** | **0.1919** | 0.2244 | 0.2196 | 0.2841 | **0.0910** ✓✓ |
-| **Concept Loss** | 0 | 13.24 | 18.48 | 59.46 | **0.29** ✓✓ |
-| **Concept Accuracy (%)** | — | 197.63 | 198.29 | 196.25 | 196.83 |
-| **Gradient Norm** | — | 706.72 | 600.45 | 1473.59 | **14.88** ✓✓✓ |
-| **Learned σ_detection** | — | — | — | — | **1.36** (upweighted) |
-| **Learned σ_concepts** | — | — | — | — | **24.55** (HEAVILY downweighted) |
-| **Total Detections** | ~228,103 | 151,362 | ~189,860 | 60,254 | **~198,974** ✓ |
+| Metric | Base R50 (0) | RF-DETR Base (0) | 2-Concept | 3-Concept | 7-Concept (Manual) | 7-Concept (Learnable) |
+|--------|--------------|------------------|-----------|-----------|--------------------|-----------------------|
+| **Total Loss** | 4.26 | 20.41 | 76.77 | 65.27 | 213.85 | **3.28** ✓ |
+| **DETR Loss** | 3.74 | 17.59 | 76.32 | 64.74 | 213.34 | **2.78** ✓ |
+| **ID Loss** | 0.52 | 2.82 | 0.45 | 0.53 | 0.51 | 0.50 |
+| **Detection BBox** | **0.0198** | 0.0362 | 0.0222 | 0.0230 | 0.0294 | **0.0095** ✓✓ |
+| **Detection GIoU** | **0.1919** | 0.3219 | 0.2244 | 0.2196 | 0.2841 | **0.0910** ✓✓ |
+| **Concept Loss** | 0 | 0 | 13.24 | 18.48 | 59.46 | **0.29** ✓✓ |
+| **Concept Accuracy (%)** | — | — | 197.63 | 198.29 | 196.25 | 196.83 |
+| **Gradient Norm** | — | 25.81 / 4.89 | 706.72 | 600.45 | 1473.59 | **14.88** ✓✓✓ |
+| **Learned σ_detection** | — | — | — | — | — | **1.36** (upweighted) |
+| **Learned σ_concepts** | — | — | — | — | — | **24.55** (HEAVILY downweighted) |
+| **Total Detections** | ~228,103 | Unknown | 151,362 | ~189,860 | 60,254 | **~198,974** ✓ |
+| **Inference FPS** | **31.6** | **4.78** | — | — | — | — |
+| **Backbone** | ResNet-50 | DINOv2-Base | ResNet-50 | ResNet-50 | ResNet-50 | ResNet-50 |
+| **Pre-training** | ImageNet-1K | 142M self-supervised | ImageNet-1K | ImageNet-1K | ImageNet-1K | ImageNet-1K |
 
 ### Training Analysis
 
@@ -87,8 +99,10 @@
 
 Evaluated on 14 sequences from validation split.
 
-| Metric | Base (0) | 2-Concept | 3-Concept | 7-Concept (Manual) | 7-Concept (Learnable) | Broken (ONLY_DETR) |
-|--------|----------|-----------|-----------|--------------------|-----------------------|--------------------|
+### ResNet-50 Backbone Models
+
+| Metric | Base R50 (0) | 2-Concept | 3-Concept | 7-Concept (Manual) | 7-Concept (Learnable) | Broken (ONLY_DETR) |
+|--------|--------------|-----------|-----------|--------------------|-----------------------|--------------------|
 | **MOTA (%)** | 47.27% | **66.00%** | 50.67% | 27.27% | **52.86%** | −2.32% |
 | **IDF1 (%)** | 46.61% | **68.96%** | 47.80% | 40.66% | **48.88%** | 0.26% |
 | **Precision (%)** | 73.93% | **98.61%** | 80.02% | 99.93% | **80.29%** | 90.88% |
@@ -98,6 +112,22 @@ Evaluated on 14 sequences from validation split.
 | **False Positives** | ~59,987 | 2,282 | ~37,909 | 47 | **37,016** | ~10,006 |
 | **Misses (False Neg)** | ~50,110 | 69,182 | ~66,311 | 171,103 | **64,303** | ~165,929 |
 | **ID Switches** | 4,984 | **3,136** | 3,418 | 730 | **3,320** | 47,390 |
+
+### DINOv2 Backbone Models (RF-DETR)
+
+| Metric | RF-DETR Base (0) | RF-DETR Large (2-Concepts) |
+|--------|------------------|----------------------------|
+| **MOTA (%)** | *Pending* | **32.52% ± 9.06** |
+| **IDF1 (%)** | *Pending* | **33.17% ± 11.43** |
+| **Precision (%)** | *Pending* | **84.29%** |
+| **Recall (%)** | *Pending* | **42.66%** |
+| **Total Detections** | *Pending* | ~110,581 |
+| **True Positives** | *Pending* | ~93,130 |
+| **False Positives** | *Pending* | ~17,451 |
+| **Misses (False Neg)** | *Pending* | ~125,132 |
+| **ID Switches** | *Pending* | **4,194** |
+
+**Note:** RF-DETR Base tracking metrics are pending because the tracker outputs from `eval_during_train` are empty (model failed to generate detections during training evaluation). Re-evaluation using `submit_and_evaluate.py` is required to regenerate tracking results from the trained checkpoint.
 
 ### Tracking Analysis
 
@@ -123,13 +153,32 @@ Detections are counted from the MOT format tracker output files:
 
 | Model | Total Detections | vs Ground Truth | Detection Strategy |
 |-------|------------------|-----------------|-------------------|
-| Base | ~228,103 | 104% (over-detects) | Liberal prediction |
-| 2-Concept | 151,362 | 69% | Balanced prediction |
-| 3-Concept | ~189,860 | 87% | Moderate prediction |
-| 7-Concept | 60,254 | **28%** | Ultra-conservative |
+| R50 Base | ~228,103 | 104% (over-detects) | Liberal prediction |
+| R50 2-Concept | 151,362 | 69% | Balanced prediction |
+| R50 3-Concept | ~189,860 | 87% | Moderate prediction |
+| R50 7-Concept (Manual) | 60,254 | **28%** | Ultra-conservative |
+| R50 7-Concept (Learnable) | 198,974 | 91% | Moderate prediction |
 | Broken | ~62,339 | 29% | Conservative (no ID tracking) |
+| **RF-DETR Large 2-Concepts** | ~110,581 | **51%** | Conservative (early training) |
 
-**Key Insight:** 7-concept makes 60% fewer detections than 2-concept (60K vs 151K), explaining the catastrophic recall drop (27.59% vs 68.29%).
+**Key Insights:**
+
+1. **RF-DETR Large 2-Concepts vs R50 2-Concepts (Backbone Comparison):**
+   - **MOTA**: 32.52% vs 66.00% (**−33.48 points**, RF-DETR significantly worse)
+   - **IDF1**: 33.17% vs 68.96% (**−35.79 points**, RF-DETR significantly worse)
+   - **Precision**: 84.29% vs 98.61% (−14.32 points)
+   - **Recall**: 42.66% vs 68.29% (**−25.63 points**, RF-DETR misses much more)
+   - **ID Switches**: 4,194 vs 3,136 (+33.7% more ID switches)
+   - **Training**: Epoch 0 vs Epoch 2 (R50 is more trained)
+   
+   **Analysis**: RF-DETR's poor performance is likely due to:
+   - **Early training** (epoch 0 vs epoch 2 for R50)
+   - **Slower convergence** of ViT-based models (needs more epochs)
+   - **Empty tracker outputs during `eval_during_train`** (possible training instability)
+   - DINOv2's self-supervised features may need more training to adapt to tracking task
+   - Conservative detection strategy (51% of GT vs 69% for R50 2-Concepts)
+
+2. **R50 Baseline observations:**
 
 **Error Distribution Comparison:**
 
@@ -349,3 +398,45 @@ The correct base MOTIP (no concepts, ID decoder enabled):
 
 **Conclusion**: Learnable task weights prove many concepts are viable without degradation. However, **2-concept still optimal for best tracking (MOTA/IDF1)**. Use 7-concept learnable when you prioritize recall or need rich semantic information.
 
+---
+
+## RF-DETR Evaluation Status
+
+### Current Status
+
+**RF-DETR Large (2-Concepts) — Fold 0, Epoch 0:** ✅ **COMPLETE**
+- Tracker outputs: Generated and evaluated
+- MOTA: 32.52%, IDF1: 33.17%
+- Checkpoint: `outputs/rfdetr_large_motip_pdestre_2concepts_fold0/checkpoint_0.pth`
+
+**RF-DETR Base (No Concepts) — Fold 0, Epoch 0:** ⚠️ **NEEDS RE-EVALUATION**
+- Tracker outputs: **EMPTY** (all `.txt` files have 0 lines)
+- Issue: Model failed to generate detections during `eval_during_train`
+- Checkpoint exists: `outputs/rfdetr_base_motip_pdestre_base_fold0/checkpoint_0.pth` (1.2 GB)
+- Training completed successfully (10.4 hours, 61,491 steps)
+- **Next step**: Run `submit_and_evaluate.py` to regenerate tracking results from checkpoint
+
+### Why submit_and_evaluate.py is Needed
+
+**`compute_tracking_metrics.py`** (evaluation only):
+- ✅ Use when: Tracker outputs already exist in `eval_during_train/epoch_*/tracker/`
+- ❌ Cannot use for: RF-DETR Base (tracker files are empty)
+
+**`submit_and_evaluate.py`** (inference + evaluation):
+- Loads checkpoint → runs inference → generates tracker outputs → evaluates
+- ✅ Use when: Need to regenerate tracker outputs (empty files, new checkpoint, etc.)
+- Required for: RF-DETR Base to get tracking metrics
+
+### Next Steps
+
+To complete RF-DETR Base evaluation:
+
+```bash
+# Use submit_and_evaluate.py to run inference and generate tracker outputs
+python evaluation/submit_and_evaluate.py \
+  --config configs/rfdetr_base_motip_pdestre_base.yaml \
+  --checkpoint outputs/rfdetr_base_motip_pdestre_base_fold0/checkpoint_0.pth \
+  --mode evaluate
+```
+
+Then re-run `compute_tracking_metrics.py` to get metrics and update this comparison.

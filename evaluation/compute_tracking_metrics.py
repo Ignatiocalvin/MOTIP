@@ -59,6 +59,16 @@ MODELS = {
         "prefix": "r50_motip_pdestre_7concepts_for_id_fold",
         "color": "#e74c3c",
     },
+    "RF-DETR Base (No Concepts)": {
+        "prefix": "rfdetr_base_motip_pdestre_base_fold",  # Note: no underscore before fold number
+        "color": "#9b59b6",
+        "use_underscore": False,
+    },
+    "RF-DETR Large (2 Concepts)": {
+        "prefix": "rfdetr_large_motip_pdestre_2concepts_fold",  # Note: no underscore before fold number
+        "color": "#e67e22",
+        "use_underscore": False,
+    },
 }
 
 NUM_FOLDS = 3
@@ -449,7 +459,11 @@ def main():
             if args.fold is not None and args.fold != fold_idx:
                 continue
             
-            output_dir = OUTPUTS_DIR / f"{config['prefix']}_{fold_idx}"
+            # Handle different fold naming conventions
+            if config.get('use_underscore', True):
+                output_dir = OUTPUTS_DIR / f"{config['prefix']}_{fold_idx}"
+            else:
+                output_dir = OUTPUTS_DIR / f"{config['prefix']}{fold_idx}"
             
             if not output_dir.exists():
                 print(f"  Fold {fold_idx}: Output directory not found")
