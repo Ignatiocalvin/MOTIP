@@ -136,12 +136,12 @@ python -c "import MultiScaleDeformableAttention" 2>/dev/null || {
 #      --resume-model ./outputs/rfdetr_motip_pdestre/checkpoint_epoch_X.pth
 
 # ========================================
-# Run RF-DETR training for all folds
+# Run RF-DETR Base training for all folds
 # ========================================
-echo "Starting RF-DETR + MOTIP training for all folds..."
-echo "Model: RF-DETR Medium (DINOv2 backbone)"
-echo "Resolution: 588x588"
-echo "Dataset: P-DESTRE - concepts predicted but NOT passed to ID predictor"
+echo "Starting RF-DETR Base + MOTIP training for all folds..."
+echo "Model: RF-DETR Base (DINOv2-Base backbone)"
+echo "Resolution: 392x392"
+echo "Dataset: P-DESTRE - NO concepts (pure detection + ID tracking)"
 echo "Training 3 folds sequentially"
 echo ""
 
@@ -152,7 +152,7 @@ for FOLD in {0..2}; do
     echo "=========================================="
     
     # Check if checkpoint exists for resuming
-    CHECKPOINT_PATH="./outputs/rfdetr_large_motip_pdestre_no_concepts_fold_${FOLD}/checkpoint_0.pth"
+    CHECKPOINT_PATH="./outputs/rfdetr_base_motip_pdestre_base_fold${FOLD}/checkpoint_0.pth"
     RESUME_ARG=""
     if [ -f "$CHECKPOINT_PATH" ]; then
         echo "Found checkpoint at ${CHECKPOINT_PATH}, will resume training"
@@ -162,10 +162,10 @@ for FOLD in {0..2}; do
     fi
     
     # Create a temporary config file for this fold
-    FOLD_CONFIG="/tmp/rfdetr_fold_${FOLD}.yaml"
+    FOLD_CONFIG="/tmp/rfdetr_base_fold_${FOLD}.yaml"
     cat > "$FOLD_CONFIG" << EOF
 # Temporary config for fold ${FOLD}
-SUPER_CONFIG_PATH: ./configs/rfdetr_medium_motip_pdestre_7concepts.yaml
+SUPER_CONFIG_PATH: ./configs/rfdetr_base_motip_pdestre_base.yaml
 
 # Override dataset splits for this fold
 DATASETS: [P-DESTRE]
@@ -178,7 +178,7 @@ EOF
     env PYTHONPATH="${SCRIPT_DIR}/rf-detr:${PYTHONPATH}" \
     accelerate launch --num_processes=1 train.py \
         --data-root ./data/ \
-        --exp-name rfdetr_large_motip_pdestre_no_concepts_fold_${FOLD} \
+        --exp-name rfdetr_base_motip_pdestre_base_fold${FOLD} \
         --config-path "$FOLD_CONFIG" \
         $RESUME_ARG
     
