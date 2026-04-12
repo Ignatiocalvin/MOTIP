@@ -1,0 +1,66 @@
+# RF-DETR Large MOTIP - P-DESTRE Base (no concepts), Fold 0, v3
+# Fixes over v2 — two independent root causes of total detection failure:
+#
+# FIX 1: NUM_WORKERS: 0 → 5
+#   The base RF-DETR config sets NUM_WORKERS=0 to "avoid dataloader deadlock".
+#   This causes ~55h/epoch (vs ~12h for all concept models, which use 5 workers).
+#   With 0 workers the training job is killed after only 1 epoch, never converging.
+#
+# FIX 2: PRETRAIN_WEIGHTS: null → rf-detr-large.pth
+#   Without pretrained weights the class detection scores stay below DET_THRESH=0.3
+#   at epoch 0 inference. Confirmed by comparison with 7C-LW (same architecture,
+#   same true epoch 0): 7C-LW produces 1.3MB+ tracker files; v2 produces 0 bytes.
+#   rf-detr-large.pth is actually a base-sized checkpoint (hidden_dim=384,
+#   group_detr=13). Only 2 keys are shape-compatible with this model:
+#     - bbox_embed.layers.2.bias                       : shape (4,)
+#     - transformer.enc_out_bbox_embed.0.layers.2.bias : shape (4,)
+#   These COCO bbox biases provide better anchor calibration → stronger Hungarian
+#   match gradients → class scores above DET_THRESH from epoch 0.
+#   train.py handles shape mismatches gracefully (strict=False + shape filter).
+
+SUPER_CONFIG_PATH: ./configs/rfdetr_large_motip_pdestre_base_fold0_v2.yaml
+
+# Fix NUM_WORKERS: base config sets 0 to "avoid deadlock", but all concept
+# models use 5 workers. With 0 workers, training runs at ~3s/step (~55h/epoch)
+# and the job terminates after only 1 epoch. With 5 workers: ~12h/epoch.
+NUM_WORKERS: 5
+
+# Override the RFDETR block to add PRETRAIN_WEIGHTS.
+# Must include the COMPLETE block because super_config.update() is a shallow
+# merge — a partial RFDETR dict would drop all other RFDETR settings.
+RFDETR:
+  # Model size: Large (DINOv2-Large backbone)
+  ENCODER: dinov2_windowed_large
+  RESOLUTION: 588                   # Input resolution (divisible by 28)
+  HIDDEN_DIM: 1024                  # Hidden dimension (large model)
+  DEC_LAYERS: 6                     # Number of decoder layers
+  PATCH_SIZE: 14                    # ViT patch size
+  NUM_WINDOWS: 2                    # Windowed attention
+  POSITIONAL_ENCODING_SIZE: 37
+  OUT_FEATURE_INDEXES: [3, 6, 9, 12]
+  PROJECTOR_SCALE: [P4]
+
+  # Attention settings
+  SA_NHEADS: 16                     # Self-attention heads (large model)
+  CA_NHEADS: 32                     # Cross-attention heads (large model)
+  DEC_N_POINTS: 4
+
+  # Architecture settings
+  TWO_STAGE: True
+  LITE_REFPOINT_REFINE: True
+  BBOX_REPARAM: True
+  GROUP_DETR: 1
+  IA_BCE_LOSS: True
+
+  # Backbone settings
+  LAYER_NORM: True
+  RMS_NORM: False
+  FREEZE_ENCODER: False
+  BACKBONE_LORA: False
+  GRADIENT_CHECKPOINTING: False
+  LOAD_DINOV2_WEIGHTS: True
+
+  # Pretrained weights: rf-detr-large.pth (base-sized COCO checkpoint)
+  # Only 2 keys transfer (bbox head biases); all others are shape-mismatched.
+  # train.py loading code handles this gracefully with strict=False filtering.
+  PRETRAIN_WEIGHTS: ./pretrains/rf-detr-large.pth

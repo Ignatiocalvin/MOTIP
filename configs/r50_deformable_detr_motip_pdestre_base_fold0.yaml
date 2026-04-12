@@ -1,0 +1,50 @@
+# R50 Deformable DETR MOTIP - P-DESTRE Base (0 concepts), Fold 0
+# Pure detection + ID tracking, no concept prediction.
+# For fair comparison with concept-based R50 models.
+
+SUPER_CONFIG_PATH: ./configs/r50_deformable_detr_motip_dancetrack.yaml
+
+# --- Data Settings ---
+DATASETS: [P-DESTRE]
+DATASET_SPLITS: [Train_0]
+INFERENCE_DATASET: P-DESTRE
+INFERENCE_SPLIT: val_0
+
+# --- Sampling Settings ---
+SAMPLE_STEPS: [0]
+SAMPLE_LENGTHS: [15]
+SAMPLE_INTERVALS: [4]
+
+# --- No Concepts ---
+NUM_CONCEPTS: 0
+MOTIP:
+  N_CONCEPTS: 0
+  DETR_LOSSES: [labels, boxes, cardinality]
+
+# --- Training Settings ---
+EPOCHS: 10
+BATCH_SIZE: 1
+LR: 1.0e-4
+LR_BACKBONE_SCALE: 0.1
+LR_WARMUP_EPOCHS: 0
+WEIGHT_DECAY: 0.0005
+MAX_CLIP_NORM: 0.1
+ACCUMULATE_STEPS: 2
+SCHEDULER_MILESTONES: [8]
+
+# --- Resume from epoch 1 checkpoint ---
+USE_PREVIOUS_CHECKPOINT: False
+RESUME_MODEL: ./outputs/r50_motip_pdestre_base_fold0/checkpoint_1.pth
+RESUME_OPTIMIZER: true
+RESUME_SCHEDULER: true
+RESUME_STATES: true
+
+# --- Evaluation Settings ---
+EVAL_DURING_TRAIN: True
+EVAL_DURING_TRAIN_EPOCHS: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]
+
+# --- Checkpoint Settings ---
+SAVE_CHECKPOINT_PER_EPOCH: 1
+MULTI_LAST_CHECKPOINTS: 4
+SAVE_CHECKPOINT_EVERY_N_STEPS: 20000
+LOGGING_INTERVAL: 5000

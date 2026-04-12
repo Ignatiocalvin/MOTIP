@@ -1,0 +1,12 @@
+# RF-DETR Large MOTIP - 7 Concepts WITHOUT learnable weights
+# Used to resume the training that was interrupted at checkpoint_2
+# This continues the experiment that was running before learnable weights were implemented
+
+SUPER_CONFIG_PATH: ./configs/rfdetr_large_motip_pdestre_7concepts_learnable.yaml
+
+# Override: disable learnable task weights (not in original training)
+USE_LEARNABLE_TASK_WEIGHTS: False
+
+# Resume optimizer from checkpoint (training was stable, optimizer state is valid)
+RESUME_OPTIMIZER: True
+USE_PREVIOUS_CHECKPOINT: False

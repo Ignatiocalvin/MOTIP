@@ -67,6 +67,7 @@ build/
 .pytest_cache/
 .coverage
 .tox/
+*bottleneck_implementation.md
 
 # Environment and configuration
 .env
