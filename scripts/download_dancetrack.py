@@ -3,9 +3,12 @@
 Download DanceTrack dataset from Hugging Face to ./data/DanceTrack/
 
 Usage:
-    python download_dancetrack.py
-    python download_dancetrack.py --splits train val test
-    python download_dancetrack.py --output-dir /path/to/data/DanceTrack
+    # From MOTIP root directory:
+    python scripts/download_dancetrack.py
+    python scripts/download_dancetrack.py --splits train val test
+    
+    # Or with custom output:
+    python scripts/download_dancetrack.py --output-dir /path/to/data/DanceTrack
 
 The dataset is downloaded from: https://huggingface.co/datasets/noahcao/dancetrack
 
@@ -32,18 +35,25 @@ import shutil
 import argparse
 import zipfile
 
+# Detect MOTIP root directory (parent of scripts/)
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+MOTIP_ROOT = os.path.dirname(SCRIPT_DIR) if os.path.basename(SCRIPT_DIR) == "scripts" else os.getcwd()
+
 
 def parse_args():
-    parser = argparse.ArgumentParser(description="Download DanceTrack dataset from Hugging Face")
+    parser = argparse.ArgumentParser(
+        description="Download DanceTrack dataset from Hugging Face",
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter
+    )
     parser.add_argument(
         "--output-dir", type=str,
-        default=os.path.join(os.path.dirname(os.path.abspath(__file__)), "data", "DanceTrack"),
-        help="Output directory (default: ./data/DanceTrack)",
+        default=os.path.join(MOTIP_ROOT, "data", "DanceTrack"),
+        help="Output directory",
     )
     parser.add_argument(
         "--splits", nargs="+", default=["train", "val", "test"],
         choices=["train", "val", "test"],
-        help="Splits to download (default: train val test)",
+        help="Splits to download",
     )
     parser.add_argument(
         "--cache-dir", type=str, default=None,

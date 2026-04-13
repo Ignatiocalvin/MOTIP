@@ -1,10 +1,10 @@
 #!/bin/bash
 #SBATCH --job-name=eval_r50_7c_lw_val1
-#SBATCH --partition=gpu_a100_il
+#SBATCH --partition=gpu_h100_short
 #SBATCH --gres=gpu:1
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=8
-#SBATCH --time=04:00:00
+#SBATCH --time=02:00:00
 #SBATCH --mem=24G
 #SBATCH --output=logs/eval_r50_7c_lw_val1_%j.out
 #SBATCH --error=logs/eval_r50_7c_lw_val1_%j.err
@@ -124,14 +124,14 @@ for EPOCH in 0 1 2 3 4 5 6 7 8; do
         continue
     fi
 
-    # Verify completion
+    # Verify completion: count only val_1 sequences
+    VAL1_SEQS=$(cat ./data/P-DESTRE/splits/val_1.txt | sed 's/\.txt$//')
     FINAL_COUNT=0
-    if [ -d "$OUT_DIR/tracker" ]; then
-        for f in "$OUT_DIR/tracker"/*.txt; do
-            [ -s "$f" ] && FINAL_COUNT=$((FINAL_COUNT + 1))
-        done
-    fi
-    echo "✓ Epoch $EPOCH: $FINAL_COUNT/15 tracker files generated at $(date)"
+    for seq in $VAL1_SEQS; do
+        f="$OUT_DIR/tracker/${seq}.txt"
+        [ -s "$f" ] && FINAL_COUNT=$((FINAL_COUNT + 1))
+    done
+    echo "✓ Epoch $EPOCH: $FINAL_COUNT/15 val_1 tracker files generated at $(date)"
 
 done
 

@@ -6,8 +6,13 @@ This script generates precomputed SAM masks for each object in each frame.
 The masks are used by the SAM concept bottleneck model for spatial feature pooling.
 
 Usage:
-    python precompute_sam_masks.py --dataset DanceTrack --split train
-    python precompute_sam_masks.py --dataset P-DESTRE --split Train_0
+    # From MOTIP root directory:
+    python scripts/precompute_sam_masks.py                          # DanceTrack train (default)
+    python scripts/precompute_sam_masks.py --split val              # DanceTrack val
+    python scripts/precompute_sam_masks.py --dataset P-DESTRE --split Train_0
+
+    # Or from scripts/ directory:
+    python precompute_sam_masks.py --data-root ../data --save-root ../precomputed_sam_masks
 
 Output structure:
     {SAVE_ROOT}/{sequence_name}/{frame_id:08d}/{track_id}.png
@@ -16,6 +21,7 @@ Each mask is a binary PNG (255=foreground, 0=background) at original image resol
 """
 
 import os
+import sys
 import cv2
 import torch
 import argparse
@@ -25,11 +31,18 @@ from segment_anything import sam_model_registry, SamPredictor
 
 
 # =========================================================
-# DEFAULTS
+# DEFAULTS (relative to MOTIP root)
 # =========================================================
-DEFAULT_SAM_CHECKPOINT = "./pretrains/sam_vit_b_01ec64.pth"
+# Detect if we're running from scripts/ subdirectory
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+MOTIP_ROOT = os.path.dirname(SCRIPT_DIR) if os.path.basename(SCRIPT_DIR) == "scripts" else os.getcwd()
+
+DEFAULT_SAM_CHECKPOINT = os.path.join(MOTIP_ROOT, "pretrains", "sam_vit_b_01ec64.pth")
 DEFAULT_MODEL_TYPE = "vit_b"
-DEFAULT_SAVE_ROOT = "./precomputed_sam_masks"
+DEFAULT_DATA_ROOT = os.path.join(MOTIP_ROOT, "data")
+DEFAULT_SAVE_ROOT = os.path.join(MOTIP_ROOT, "precomputed_sam_masks")
+DEFAULT_DATASET = "DanceTrack"
+DEFAULT_SPLIT = "train"
 DEFAULT_DEBUG_OVERLAYS = False
 
 # Mask selection strategy
@@ -43,12 +56,15 @@ SKIP_EXISTING = True
 
 
 def parse_args():
-    parser = argparse.ArgumentParser(description="Precompute SAM masks for MOTIP")
-    parser.add_argument("--dataset", type=str, required=True,
+    parser = argparse.ArgumentParser(
+        description="Precompute SAM masks for MOTIP Concept Bottleneck",
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter
+    )
+    parser.add_argument("--dataset", type=str, default=DEFAULT_DATASET,
                         help="Dataset name: DanceTrack, P-DESTRE, etc.")
-    parser.add_argument("--split", type=str, required=True,
+    parser.add_argument("--split", type=str, default=DEFAULT_SPLIT,
                         help="Dataset split: train, val, Train_0, etc.")
-    parser.add_argument("--data-root", type=str, default="./data",
+    parser.add_argument("--data-root", type=str, default=DEFAULT_DATA_ROOT,
                         help="Root directory containing datasets")
     parser.add_argument("--sam-checkpoint", type=str, default=DEFAULT_SAM_CHECKPOINT,
                         help="Path to SAM checkpoint")

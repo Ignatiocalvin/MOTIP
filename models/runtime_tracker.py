@@ -537,7 +537,8 @@ class RuntimeTracker:
         """
         # Determine concept dimension and dtype based on mode
         concept_dim = concepts.shape[-1] if concepts is not None and concepts.dim() > 1 else 0
-        concept_dtype = torch.float32 if self.concept_bottleneck_mode == "soft" else torch.int64
+        # SAM concept bottleneck uses float tensors, same as soft mode
+        concept_dtype = torch.float32 if (self.concept_bottleneck_mode == "soft" or self.use_concept_bottleneck) else torch.int64
         
         # 1. cut trajectory infos:
         self.trajectory_features = self.trajectory_features[-self.miss_tolerance + 2:, ...]
