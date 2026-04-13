@@ -31,6 +31,8 @@ def main():
                         help='Dataset split (e.g., test, val)')
     parser.add_argument('--output-dir', type=str, default=None,
                         help='Output directory (default: auto-generated from checkpoint path)')
+    parser.add_argument('--skip-existing', action='store_true',
+                        help='Skip sequences whose tracker output file already exists')
     
     args = parser.parse_args()
     
@@ -106,6 +108,7 @@ def main():
         dataset=cfg["INFERENCE_DATASET"],
         data_split=cfg["INFERENCE_SPLIT"],
         outputs_dir=args.output_dir,
+        skip_existing=args.skip_existing,
         image_max_longer=cfg.get("INFERENCE_MAX_LONGER", 1333),
         size_divisibility=cfg.get("SIZE_DIVISIBILITY", 0),
         miss_tolerance=cfg.get("MISS_TOLERANCE", 30),

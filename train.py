@@ -29,6 +29,7 @@ else:
 
 import math
 import torch
+import torch.nn.functional as F
 import einops
 from accelerate import Accelerator
 from accelerate.state import PartialState
@@ -198,7 +199,19 @@ def train_engine(config: dict):
             
             # Load weights into the DETR model (strict=False to allow missing/extra keys)
             # RF-DETR weights go into model.detr
-            missing_keys, unexpected_keys = model.detr.load_state_dict(state_dict, strict=False)
+            # Filter out shape-mismatched keys (e.g. class head: COCO 91-class → MOT 1-class,
+            # refpoint_embed/query_feat: group_detr mismatch) so they are re-initialized.
+            model_state = model.detr.state_dict()
+            filtered_state_dict = {}
+            skipped_keys = []
+            for k, v in state_dict.items():
+                if k in model_state and model_state[k].shape != v.shape:
+                    skipped_keys.append(f"{k}: ckpt {tuple(v.shape)} → model {tuple(model_state[k].shape)}")
+                else:
+                    filtered_state_dict[k] = v
+            if skipped_keys:
+                logger.info(log=f"Skipping {len(skipped_keys)} shape-mismatched keys (will be re-initialized): {skipped_keys[:6]}")
+            missing_keys, unexpected_keys = model.detr.load_state_dict(filtered_state_dict, strict=False)
             
             logger.success(log=f"Loaded RF-DETR pretrained weights from '{pretrain_weights}'")
             if missing_keys:
@@ -316,8 +329,11 @@ def train_engine(config: dict):
             save_checkpoint_every_n_steps=config.get("SAVE_CHECKPOINT_EVERY_N_STEPS", 0),
             resume_from_step=config.get("RESUME_FROM_STEP", 0) if epoch == train_states["start_epoch"] else 0,
             scheduler=scheduler,
+            logging_interval=config.get("LOGGING_INTERVAL", 10000),
             # Concept bottleneck mode: "hard" or "soft"
             concept_bottleneck_mode=config.get("MOTIP", {}).get("CONCEPT_BOTTLENECK_MODE", "hard"),
+            # SAM concept bottleneck: use feature map + object masks
+            use_concept_bottleneck=config.get("USE_CONCEPT_BOTTLENECK", False),
         )
 
         # Get learning rate:
@@ -370,6 +386,9 @@ def train_engine(config: dict):
                     inference_only_detr=config["INFERENCE_ONLY_DETR"] if config["INFERENCE_ONLY_DETR"] is not None
                     else config["ONLY_DETR"],
                     concept_bottleneck_mode=config.get("MOTIP", {}).get("CONCEPT_BOTTLENECK_MODE", "hard"),
+                    # SAM concept bottleneck parameters
+                    use_concept_bottleneck=config.get("USE_CONCEPT_BOTTLENECK", False),
+                    object_mask_root=config.get("OBJECT_MASK_ROOT", None),
                 )
                 eval_metrics.sync()
                 logger.metrics(
@@ -422,6 +441,8 @@ def train_one_epoch(
         scheduler=None,
         # Concept bottleneck mode: "hard" or "soft"
         concept_bottleneck_mode: str = "hard",
+        # SAM concept bottleneck: use feature map + object masks
+        use_concept_bottleneck: bool = False,
 ):
     current_last_checkpoint_idx = 0
 
@@ -568,6 +589,7 @@ def train_one_epoch(
             seq_info = prepare_for_motip(
                 detr_outputs=detr_outputs, annotations=annotations, detr_indices=detr_indices,
                 concept_bottleneck_mode=concept_bottleneck_mode,
+                use_concept_bottleneck=use_concept_bottleneck,
             )
             seq_info = model(seq_info=seq_info, part="trajectory_modeling")
             id_logits, id_gts, id_masks = model(
@@ -951,7 +973,48 @@ def tensor_dict_index_select(tensor_dict, index, dim=0):
     return dict(res_tensor_dict)
 
 
-def prepare_for_motip(detr_outputs, annotations, detr_indices, concept_bottleneck_mode: str = "hard"):
+def masked_average_pool(feature_map: torch.Tensor, masks: torch.Tensor) -> torch.Tensor:
+    """
+    Pool features from a spatial feature map using binary masks (SAM concept bottleneck).
+    
+    Args:
+        feature_map: [C, Hf, Wf] spatial feature map from DETR backbone
+        masks: [N, H, W] binary/bool masks at image resolution
+
+    Returns:
+        concept_features: [N, C] pooled features for each mask
+    """
+    assert feature_map.dim() == 3, f"feature_map must be [C,Hf,Wf], got {feature_map.shape}"
+    assert masks.dim() == 3, f"masks must be [N,H,W], got {masks.shape}"
+
+    C, Hf, Wf = feature_map.shape
+    N = masks.shape[0]
+    device = feature_map.device
+
+    if N == 0:
+        return torch.zeros((0, C), dtype=feature_map.dtype, device=device)
+
+    # Resize masks to feature map resolution
+    masks_resized = F.interpolate(
+        masks[:, None].to(feature_map.dtype),
+        size=(Hf, Wf),
+        mode="nearest",
+    )[:, 0]  # [N, Hf, Wf]
+
+    feat_flat = feature_map.view(C, -1)     # [C, Hf*Wf]
+    masks_flat = masks_resized.view(N, -1)  # [N, Hf*Wf]
+
+    weighted_sum = masks_flat @ feat_flat.t()   # [N, C]
+    denom = masks_flat.sum(dim=1, keepdim=True) # [N, 1]
+
+    valid = denom.squeeze(1) > 0
+    concept_features = torch.zeros((N, C), dtype=feature_map.dtype, device=device)
+    concept_features[valid] = weighted_sum[valid] / denom[valid]
+
+    return concept_features
+
+
+def prepare_for_motip(detr_outputs, annotations, detr_indices, concept_bottleneck_mode: str = "hard", use_concept_bottleneck: bool = False):
     """
     Prepare DETR outputs for MOTIP ID prediction.
     
@@ -962,6 +1025,8 @@ def prepare_for_motip(detr_outputs, annotations, detr_indices, concept_bottlenec
         concept_bottleneck_mode: "hard" or "soft"
             - "hard": Use argmax'd discrete concept labels (no gradient flow)
             - "soft": Use softmax probability distributions (enables gradient flow)
+        use_concept_bottleneck: If True, use SAM-based spatial feature pooling for concepts
+            When enabled, feature_map and obj_mask must be available
     
     Returns:
         Dictionary containing trajectory and unknown features, boxes, ids, and concepts
@@ -971,8 +1036,18 @@ def prepare_for_motip(detr_outputs, annotations, detr_indices, concept_bottlenec
     _device = detr_outputs["pred_logits"].device
     _feature_dim = detr_outputs["outputs"].shape[-1]
     
-    # Check if we have concept predictions from DETR
-    has_concepts = "pred_concepts" in detr_outputs and detr_outputs["pred_concepts"] is not None
+    # SAM Concept Bottleneck: use feature map + object masks for concept features
+    if use_concept_bottleneck:
+        assert "feature_map" in detr_outputs, "feature_map required for SAM concept bottleneck"
+        _concept_dim = detr_outputs["feature_map"].shape[1]  # Channel dimension of feature map
+        has_concepts = False  # Don't use DETR concept heads
+        _num_concepts = 0
+        pred_concepts_list = []
+    else:
+        # Check if we have concept predictions from DETR
+        has_concepts = "pred_concepts" in detr_outputs and detr_outputs["pred_concepts"] is not None
+        _concept_dim = 0
+    
     if has_concepts:
         pred_concepts_list = detr_outputs["pred_concepts"]
         if isinstance(pred_concepts_list, list):
@@ -983,7 +1058,7 @@ def prepare_for_motip(detr_outputs, annotations, detr_indices, concept_bottlenec
             _num_concepts = 1
             _total_concept_classes = pred_concepts_list.shape[-1]
             pred_concepts_list = [pred_concepts_list]
-    else:
+    elif not use_concept_bottleneck:
         _num_concepts = 0
         _total_concept_classes = 0
         pred_concepts_list = []
@@ -1000,11 +1075,16 @@ def prepare_for_motip(detr_outputs, annotations, detr_indices, concept_bottlenec
     unknown_boxes = torch.zeros((_B, _G, _T, _N, 4), dtype=torch.float32, device=_device)
     unknown_features = torch.zeros((_B, _G, _T, _N, _feature_dim), dtype=torch.float32, device=_device)
     
-    # Initialize concept tensors if concepts are available
-    # Shape depends on mode:
-    # - "hard": (B, G, T, N, num_concepts) integer labels
-    # - "soft": (B, G, T, N, total_concept_classes) float probabilities
-    if _num_concepts > 0:
+    # Initialize concept tensors based on mode
+    if use_concept_bottleneck:
+        # SAM concept bottleneck: concept_dim is the feature map channel dimension
+        trajectory_concepts = torch.zeros((_B, _G, _T, _N, _concept_dim), dtype=torch.float32, device=_device)
+        unknown_concepts = torch.zeros((_B, _G, _T, _N, _concept_dim), dtype=torch.float32, device=_device)
+    elif _num_concepts > 0:
+        # DETR concept heads mode
+        # Shape depends on mode:
+        # - "hard": (B, G, T, N, num_concepts) integer labels
+        # - "soft": (B, G, T, N, total_concept_classes) float probabilities
         if concept_bottleneck_mode == "soft":
             trajectory_concepts = torch.zeros((_B, _G, _T, _N, _total_concept_classes), dtype=torch.float32, device=_device)
             unknown_concepts = torch.zeros((_B, _G, _T, _N, _total_concept_classes), dtype=torch.float32, device=_device)
@@ -1019,7 +1099,13 @@ def prepare_for_motip(detr_outputs, annotations, detr_indices, concept_bottlenec
             detr_output_embeds = detr_outputs["outputs"][flatten_idx][detr_indices[flatten_idx][0][go_back_detr_idxs]]
             detr_boxes = detr_outputs["pred_boxes"][flatten_idx][detr_indices[flatten_idx][0][go_back_detr_idxs]]
             
-            # Get concept predictions for matched detections
+            # SAM Concept Bottleneck: compute concept features from feature map + masks
+            if use_concept_bottleneck:
+                feature_map_bt = detr_outputs["feature_map"][flatten_idx]  # [C, Hf, Wf]
+                obj_masks_bt = annotations[b][t]["obj_mask"].to(_device)   # [N_obj, H, W]
+                obj_concepts_bt = masked_average_pool(feature_map_bt, obj_masks_bt)  # [N_obj, C]
+            
+            # Get concept predictions for matched detections (DETR concept heads)
             if _num_concepts > 0:
                 if concept_bottleneck_mode == "soft":
                     # SOFT MODE: Get softmax probabilities and concatenate all concepts
@@ -1060,8 +1146,11 @@ def prepare_for_motip(detr_outputs, annotations, detr_indices, concept_bottlenec
                 trajectory_boxes[b, group, t, ~_curr_traj_masks] = detr_boxes[_curr_traj_ann_idxs[~_curr_traj_masks]]
                 unknown_boxes[b, group, t, ~_curr_unk_masks] = detr_boxes[_curr_unk_ann_idxs[~_curr_unk_masks]]
                 
-                # Fill concept data if available
-                if _num_concepts > 0:
+                # Fill concept data - SAM concept bottleneck or DETR concept heads
+                if use_concept_bottleneck:
+                    trajectory_concepts[b, group, t, ~_curr_traj_masks] = obj_concepts_bt[_curr_traj_ann_idxs[~_curr_traj_masks]]
+                    unknown_concepts[b, group, t, ~_curr_unk_masks] = obj_concepts_bt[_curr_unk_ann_idxs[~_curr_unk_masks]]
+                elif _num_concepts > 0:
                     trajectory_concepts[b, group, t, ~_curr_traj_masks] = detr_concepts[_curr_traj_ann_idxs[~_curr_traj_masks]]
                     unknown_concepts[b, group, t, ~_curr_unk_masks] = detr_concepts[_curr_unk_ann_idxs[~_curr_unk_masks]]
                 pass
@@ -1080,8 +1169,8 @@ def prepare_for_motip(detr_outputs, annotations, detr_indices, concept_bottlenec
         "unknown_features": unknown_features,
     }
     
-    # Add concepts to result if available
-    if _num_concepts > 0:
+    # Add concepts to result if available (SAM bottleneck or DETR concept heads)
+    if use_concept_bottleneck or _num_concepts > 0:
         result["trajectory_concepts"] = trajectory_concepts
         result["unknown_concepts"] = unknown_concepts
     

@@ -14,6 +14,7 @@ def build_dataset(config: dict):
         splits=config["DATASET_SPLITS"],
         transforms=build_transforms(config),
         size_divisibility=config.get("SIZE_DIVISIBILITY", 0),
+        object_mask_root=config.get("OBJECT_MASK_ROOT", None),  # SAM concept bottleneck
     )
 
 

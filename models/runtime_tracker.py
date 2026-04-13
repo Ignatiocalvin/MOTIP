@@ -1,7 +1,11 @@
 # Copyright (c) Ruopeng Gao. All Rights Reserved.
 
+import os
+import numpy as np
 import torch
+import torch.nn.functional as F
 import einops
+from PIL import Image
 from scipy.optimize import linear_sum_assignment
 
 from structures.instances import Instances
@@ -29,13 +33,23 @@ class RuntimeTracker:
             dtype: torch.dtype = torch.float32,
             # Concept bottleneck mode: "hard" or "soft"
             concept_bottleneck_mode: str = "hard",
+            # SAM concept bottleneck parameters
+            use_concept_bottleneck: bool = False,
+            object_mask_root: str = None,
+            sequence_name: str = None,
     ):
         self.model = model
         self.model.eval()
 
         self.dtype = dtype
+        self.sequence_hw = sequence_hw
         
-        # Concept bottleneck mode
+        # SAM concept bottleneck settings
+        self.use_concept_bottleneck = use_concept_bottleneck
+        self.object_mask_root = object_mask_root
+        self.sequence_name = sequence_name
+        
+        # Concept bottleneck mode (for DETR concept heads)
         self.concept_bottleneck_mode = concept_bottleneck_mode.lower()
         if self.concept_bottleneck_mode not in ["hard", "soft"]:
             raise ValueError(f"concept_bottleneck_mode must be 'hard' or 'soft', got '{concept_bottleneck_mode}'")
@@ -100,24 +114,167 @@ class RuntimeTracker:
         # Trajectory concepts: 
         # - "hard" mode: (T, N, num_concepts) integer labels
         # - "soft" mode: (T, N, total_concept_classes) float probabilities
-        self.trajectory_concepts = torch.zeros(
-            (0, 0, 0), dtype=torch.float32 if self.concept_bottleneck_mode == "soft" else torch.int64, 
-            device=distributed_device(),
-        )
+        # - SAM concept bottleneck: (T, N, feature_dim) float features
+        if self.use_concept_bottleneck:
+            # SAM concept bottleneck uses feature_dim (256) as concept dimension
+            self.trajectory_concepts = torch.zeros(
+                (0, 0, self.feature_dim), dtype=torch.float32, device=distributed_device(),
+            )
+        else:
+            self.trajectory_concepts = torch.zeros(
+                (0, 0, 0), dtype=torch.float32 if self.concept_bottleneck_mode == "soft" else torch.int64, 
+                device=distributed_device(),
+            )
         # self.trajectory_features = torch.zeros(())
 
         self.current_track_results = {}
         return
 
+    # ---------- SAM Concept Bottleneck Helper Methods ----------
+    
+    def _get_mask_frame_dir(self, image_path: str):
+        """Get the directory containing SAM masks for a given frame."""
+        if self.object_mask_root is None:
+            return None
+        frame_name = os.path.splitext(os.path.basename(image_path))[0]
+        return os.path.join(self.object_mask_root, self.sequence_name, frame_name)
+
+    def _load_frame_masks(self, image_path: str):
+        """Load all SAM masks for a given frame."""
+        frame_dir = self._get_mask_frame_dir(image_path)
+        if frame_dir is None or not os.path.isdir(frame_dir):
+            return torch.zeros(
+                (0, self.sequence_hw[0], self.sequence_hw[1]),
+                dtype=torch.bool, device=distributed_device(),
+            )
+
+        mask_files = sorted([
+            os.path.join(frame_dir, f)
+            for f in os.listdir(frame_dir) if f.endswith(".png")
+        ])
+
+        masks = []
+        for p in mask_files:
+            m = Image.open(p).convert("L")
+            m = np.array(m)
+            m = torch.from_numpy(m > 0)
+            masks.append(m)
+
+        if len(masks) == 0:
+            return torch.zeros(
+                (0, self.sequence_hw[0], self.sequence_hw[1]),
+                dtype=torch.bool, device=distributed_device(),
+            )
+        return torch.stack(masks, dim=0).to(distributed_device())  # [M, H, W]
+
+    def _box_xywh_to_xyxy(self, boxes_xywh: torch.Tensor):
+        """Convert boxes from xywh to xyxy format."""
+        x, y, w, h = boxes_xywh.unbind(-1)
+        return torch.stack([x, y, x + w, y + h], dim=-1)
+
+    def _compute_mask_boxes_xyxy(self, masks: torch.Tensor):
+        """Compute bounding boxes from masks. masks: [M, H, W], returns: [M, 4] in xyxy."""
+        if masks.shape[0] == 0:
+            return torch.zeros((0, 4), dtype=self.dtype, device=distributed_device())
+
+        boxes = []
+        for m in masks:
+            ys, xs = torch.where(m)
+            if len(xs) == 0:
+                boxes.append(torch.tensor([0, 0, 0, 0], dtype=self.dtype, device=distributed_device()))
+            else:
+                x1 = xs.min().to(self.dtype)
+                y1 = ys.min().to(self.dtype)
+                x2 = xs.max().to(self.dtype)
+                y2 = ys.max().to(self.dtype)
+                boxes.append(torch.stack([x1, y1, x2, y2]))
+        return torch.stack(boxes, dim=0)
+
+    def _pairwise_iou_xyxy(self, boxes1: torch.Tensor, boxes2: torch.Tensor):
+        """Compute pairwise IoU between two sets of boxes. boxes1: [N, 4], boxes2: [M, 4]."""
+        if boxes1.shape[0] == 0 or boxes2.shape[0] == 0:
+            return torch.zeros((boxes1.shape[0], boxes2.shape[0]), dtype=self.dtype, device=distributed_device())
+
+        area1 = (boxes1[:, 2] - boxes1[:, 0]).clamp(min=0) * (boxes1[:, 3] - boxes1[:, 1]).clamp(min=0)
+        area2 = (boxes2[:, 2] - boxes2[:, 0]).clamp(min=0) * (boxes2[:, 3] - boxes2[:, 1]).clamp(min=0)
+
+        lt = torch.max(boxes1[:, None, :2], boxes2[None, :, :2])
+        rb = torch.min(boxes1[:, None, 2:], boxes2[None, :, 2:])
+        wh = (rb - lt).clamp(min=0)
+        inter = wh[..., 0] * wh[..., 1]
+        union = area1[:, None] + area2[None, :] - inter
+        return inter / (union + 1e-6)
+
+    def _masked_average_pool(self, feature_map: torch.Tensor, masks: torch.Tensor):
+        """Pool features from feature map using masks. feature_map: [C, Hf, Wf], masks: [N, H, W], returns: [N, C]."""
+        C, Hf, Wf = feature_map.shape
+        N = masks.shape[0]
+
+        if N == 0:
+            return torch.zeros((0, C), dtype=feature_map.dtype, device=feature_map.device)
+
+        masks_resized = F.interpolate(
+            masks[:, None].to(feature_map.dtype), size=(Hf, Wf), mode="nearest",
+        )[:, 0]
+
+        feat_flat = feature_map.view(C, -1)
+        masks_flat = masks_resized.view(N, -1)
+        weighted_sum = masks_flat @ feat_flat.t()
+        denom = masks_flat.sum(dim=1, keepdim=True)
+
+        valid = denom.squeeze(1) > 0
+        concept_features = torch.zeros((N, C), dtype=feature_map.dtype, device=feature_map.device)
+        concept_features[valid] = weighted_sum[valid] / denom[valid]
+        return concept_features
+
+    def _get_current_detection_concepts_sam(self, image_path: str, boxes: torch.Tensor, detr_out: dict):
+        """Get SAM-based concept features for detected boxes. boxes: [N, 4] in cxcywh normalized, returns: [N, C]."""
+        if (not self.use_concept_bottleneck) or (self.object_mask_root is None) or (image_path is None):
+            return torch.zeros((boxes.shape[0], self.feature_dim), dtype=self.dtype, device=distributed_device())
+
+        frame_masks = self._load_frame_masks(image_path)  # [M, H, W]
+        if frame_masks.shape[0] == 0:
+            return torch.zeros((boxes.shape[0], self.feature_dim), dtype=self.dtype, device=distributed_device())
+
+        feature_map = detr_out["feature_map"][0]  # [C, Hf, Wf]
+        mask_concepts = self._masked_average_pool(feature_map, frame_masks)  # [M, C]
+
+        # Convert detection boxes to xyxy for IoU matching
+        boxes_xywh = box_cxcywh_to_xywh(boxes) * self.bbox_unnorm
+        det_boxes_xyxy = self._box_xywh_to_xyxy(boxes_xywh)
+        mask_boxes_xyxy = self._compute_mask_boxes_xyxy(frame_masks)
+        ious = self._pairwise_iou_xyxy(det_boxes_xyxy, mask_boxes_xyxy)  # [N, M]
+
+        if ious.shape[1] == 0:
+            return torch.zeros((boxes.shape[0], self.feature_dim), dtype=self.dtype, device=distributed_device())
+
+        best_mask_idx = ious.argmax(dim=1)
+        return mask_concepts[best_mask_idx]
+
+    # ---------- End SAM Helper Methods ----------
+
     @torch.no_grad()
-    def update(self, image):
+    def update(self, image, image_path=None):
         detr_out = self.model(frames=image, part="detr")
         scores, categories, boxes, output_embeds, concepts = self._get_activate_detections(detr_out=detr_out)
+        
+        # SAM Concept Bottleneck: compute concepts from feature map + masks
+        if self.use_concept_bottleneck:
+            sam_concepts = self._get_current_detection_concepts_sam(
+                image_path=image_path, boxes=boxes, detr_out=detr_out
+            )
+        else:
+            sam_concepts = None
+        
         if self.only_detr:
             id_pred_labels = self.num_id_vocabulary * torch.ones(boxes.shape[0], dtype=torch.int64, device=boxes.device)
         else:
-            # Pass concepts for ID prediction
-            id_pred_labels = self._get_id_pred_labels(boxes=boxes, output_embeds=output_embeds, concepts=concepts)
+            # Pass concepts for ID prediction (SAM concepts or DETR concepts)
+            if self.use_concept_bottleneck:
+                id_pred_labels = self._get_id_pred_labels(boxes=boxes, output_embeds=output_embeds, concepts=None, sam_concepts=sam_concepts)
+            else:
+                id_pred_labels = self._get_id_pred_labels(boxes=boxes, output_embeds=output_embeds, concepts=concepts)
+        
         # Filter out illegal newborn detections:
         keep_idxs = (id_pred_labels != self.num_id_vocabulary) | (scores > self.newborn_thresh)
         scores = scores[keep_idxs]
@@ -131,6 +288,9 @@ class RuntimeTracker:
                 concepts = [c[keep_idxs] for c in concepts]
             else:
                 concepts = concepts[keep_idxs]
+        # Filter SAM concepts
+        if sam_concepts is not None:
+            sam_concepts = sam_concepts[keep_idxs]
 
         # A hack implementation, before assign new id labels, update the id_queue to ensure the uniqueness of id labels:
         n_activate_id_labels = 0
@@ -160,6 +320,9 @@ class RuntimeTracker:
                 concepts = [c[keep_idxs] for c in concepts]
             elif concepts is not None:
                 concepts = concepts[keep_idxs]
+            # Also filter SAM concepts
+            if sam_concepts is not None:
+                sam_concepts = sam_concepts[keep_idxs]
         pass
 
         # Assign new id labels:
@@ -169,11 +332,12 @@ class RuntimeTracker:
             print(id_labels, id_labels.shape)
             exit(-1)
 
-        # Convert concepts list to a format suitable for per-object iteration
-        # If concepts is a list, prepare based on concept_bottleneck_mode:
-        # - "hard" mode: stack into (N_objects, N_concepts) by taking argmax of each concept
-        # - "soft" mode: concatenate probabilities into (N_objects, total_concept_classes)
-        if isinstance(concepts, list) and len(concepts) > 0:
+        # Convert concepts to a format suitable for per-object iteration
+        # SAM concept bottleneck: use SAM concepts directly (float features)
+        if self.use_concept_bottleneck and sam_concepts is not None:
+            concepts_for_results = sam_concepts  # Already [N, C] float tensor
+        # DETR concept heads: convert list to tensor based on mode
+        elif isinstance(concepts, list) and len(concepts) > 0:
             # Check if we have any objects
             if concepts[0].shape[0] > 0:
                 if self.concept_bottleneck_mode == "soft":
@@ -253,7 +417,7 @@ class RuntimeTracker:
             concepts = pred_concepts[0][activate_indices] if pred_concepts.dim() == 3 else pred_concepts[activate_indices]
         return scores, categories, boxes, output_embeds, concepts
 
-    def _get_id_pred_labels(self, boxes: torch.Tensor, output_embeds: torch.Tensor, concepts=None):
+    def _get_id_pred_labels(self, boxes: torch.Tensor, output_embeds: torch.Tensor, concepts=None, sam_concepts=None):
         if self.trajectory_features.shape[0] == 0:
             return self.num_id_vocabulary * torch.ones(boxes.shape[0], dtype=torch.int64, device=boxes.device)
         else:
@@ -265,8 +429,13 @@ class RuntimeTracker:
                 (1, output_embeds.shape[0]), dtype=torch.int64, device=distributed_device(),
             )
             
-            # Prepare current concepts if available
-            if concepts is not None and isinstance(concepts, list) and len(concepts) > 0:
+            # Prepare current concepts based on mode:
+            # - SAM concept bottleneck: use sam_concepts directly
+            # - DETR concept heads: process concepts list
+            if self.use_concept_bottleneck and sam_concepts is not None:
+                # SAM concept bottleneck: sam_concepts is [N, C] float tensor
+                current_concept_data = sam_concepts[None, ...]  # (1, N, C)
+            elif concepts is not None and isinstance(concepts, list) and len(concepts) > 0:
                 if self.concept_bottleneck_mode == "soft":
                     # Soft mode: concatenate softmax probability distributions
                     concept_probs = [torch.softmax(c, dim=-1) for c in concepts]  # list of (N, n_classes_i)

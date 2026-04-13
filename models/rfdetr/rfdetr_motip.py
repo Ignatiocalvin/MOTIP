@@ -82,6 +82,7 @@ class RFDETR_MOTIP(nn.Module):
         two_stage: bool = True,
         lite_refpoint_refine: bool = True,
         bbox_reparam: bool = True,
+        num_windows: int = 2,
     ):
         """
         Initialize RF-DETR for MOTIP.
@@ -148,10 +149,10 @@ class RFDETR_MOTIP(nn.Module):
         print(f"[DEBUG] RFDETR_MOTIP initialization complete")
         
         # Store patch size and num_windows for input preprocessing
-        # Default values for DINOv2 with windowed attention
-        self.patch_size = 14
-        self.num_windows = 2
-        self.block_size = self.patch_size * self.num_windows  # 28
+        # Read from backbone args if available, otherwise use defaults
+        self.patch_size = getattr(backbone[0], 'patch_size', 14) if hasattr(backbone, '__getitem__') else 14
+        self.num_windows = num_windows
+        self.block_size = self.patch_size * self.num_windows
         
         # Reference point refinement
         if not self.lite_refpoint_refine:
@@ -299,6 +300,9 @@ class RFDETR_MOTIP(nn.Module):
             
             # IMPORTANT: Output hidden states for trajectory modeling
             out['outputs'] = hs[-1]
+
+            # Spatial feature map for SAM concept pooling (last feature level)
+            out['feature_map'] = srcs[-1]
             
             # Auxiliary outputs for intermediate layers
             if self.aux_loss:
@@ -460,6 +464,7 @@ def build(args):
         two_stage=getattr(args, 'two_stage', True),
         lite_refpoint_refine=getattr(args, 'lite_refpoint_refine', True),
         bbox_reparam=getattr(args, 'bbox_reparam', True),
+        num_windows=getattr(args, 'num_windows', 2),
     )
     
     # Build matcher

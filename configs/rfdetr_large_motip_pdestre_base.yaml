@@ -49,7 +49,7 @@ RFDETR:
   FREEZE_ENCODER: False
   BACKBONE_LORA: False
   GRADIENT_CHECKPOINTING: False
-  LOAD_DINOV2_WEIGHTS: True
+  LOAD_DINOV2_WEIGHTS: False
   
   # Pretrained weights
   PRETRAIN_WEIGHTS: ./pretrains/rf-detr-large.pth

@@ -21,21 +21,22 @@ SAMPLE_INTERVALS: [8, ]  # Increased from 4 to 8 for less memory
 
 # --- RF-DETR Specific Settings ---
 RFDETR:
-  # Model size: Base (DINOv2-Base backbone) - comparable to ResNet-50
-  ENCODER: dinov2_windowed_base
-  RESOLUTION: 392                  # Input resolution (divisible by 14, smaller for base)
+  # Model size: Base (DINOv2-Small backbone, ~21M params) - comparable to ResNet-50
+  ENCODER: dinov2_windowed_small
+  RESOLUTION: 560                  # Input resolution per RFDETRBaseConfig
   HIDDEN_DIM: 256                  # Hidden dimension (base model, same as R50)
-  DEC_LAYERS: 6                    # Number of decoder layers
+  DEC_LAYERS: 3                    # Number of decoder layers per RFDETRBaseConfig
   PATCH_SIZE: 14                   # ViT patch size
-  NUM_WINDOWS: 2                   # Windowed attention
-  POSITIONAL_ENCODING_SIZE: 28     # 392/14 = 28 (matches DINOv2-Base)
-  OUT_FEATURE_INDEXES: [3, 6, 9, 12]
+  NUM_WINDOWS: 4                   # Windowed attention (4 per base config)
+  POSITIONAL_ENCODING_SIZE: 37     # 560/14 ≈ 40; 37 per RFDETRBaseConfig
+  OUT_FEATURE_INDEXES: [2, 5, 8, 11]
   PROJECTOR_SCALE: [P4]
   
   # Attention settings (Base model)
   SA_NHEADS: 8                     # Self-attention heads (base model)
   CA_NHEADS: 16                    # Cross-attention heads (base model)
-  DEC_N_POINTS: 4
+  DEC_N_POINTS: 2                  # Deformable attention points per base config
+  DIM_FEEDFORWARD: 2048            # FFN dim matching rf-detr-base-coco.pth
   
   # Architecture settings
   TWO_STAGE: True
@@ -50,7 +51,7 @@ RFDETR:
   FREEZE_ENCODER: False
   BACKBONE_LORA: False
   GRADIENT_CHECKPOINTING: True   # Enable to save memory
-  LOAD_DINOV2_WEIGHTS: True
+  LOAD_DINOV2_WEIGHTS: False
   
   # Pretrained weights
   PRETRAIN_WEIGHTS: ./pretrains/rf-detr-base-coco.pth

@@ -4,6 +4,7 @@
 
 import copy
 import os # <-- Import OS
+import numpy as np
 import torch
 from collections import defaultdict
 from torch.utils.data import Dataset
@@ -46,6 +47,7 @@ class JointDataset(Dataset):
 
         # Handle the parameters **kwargs:
         self.size_divisibility = kwargs.get("size_divisibility", 0)
+        self.object_mask_root = kwargs.get("object_mask_root", None)  # SAM mask root directory
 
         # Load the datasets into "sequence_infos", "image_paths", and "annotations",
         # each of which is a dictionary with the dataset name and split as the key.
@@ -58,11 +60,20 @@ class JointDataset(Dataset):
                 if dataset not in dataset_classes:
                     raise KeyError(f"Dataset '{dataset}' not found in dataset_classes.")
                 
-                dataset_class = dataset_classes[dataset](
-                    data_root=data_root,
-                    split=split,
-                    load_annotation=True,
-                )
+                # Pass object_mask_root for DanceTrack (SAM concept bottleneck)
+                if dataset == "DanceTrack" and self.object_mask_root is not None:
+                    dataset_class = dataset_classes[dataset](
+                        data_root=data_root,
+                        split=split,
+                        load_annotation=True,
+                        object_mask_root=self.object_mask_root,
+                    )
+                else:
+                    dataset_class = dataset_classes[dataset](
+                        data_root=data_root,
+                        split=split,
+                        load_annotation=True,
+                    )
                 self.sequence_infos[dataset][split] = dataset_class.get_sequence_infos()
                 self.image_paths[dataset][split] = dataset_class.get_image_paths()
                 self.annotations[dataset][split] = dataset_class.get_annotations()
@@ -231,6 +242,16 @@ class JointDataset(Dataset):
         annotations = [copy.deepcopy(annotation) for annotation in annotations]
         metas = [copy.deepcopy(meta) for meta in metas]
 
+        # SAM: load binary object masks before transforms
+        for t in range(len(annotations)):
+            if "obj_mask_path" in annotations[t]:
+                h = images[t].height
+                w = images[t].width
+                annotations[t]["obj_mask"] = self._load_obj_masks(
+                    annotations[t]["obj_mask_path"],
+                    image_size_hw=(h, w),
+                )
+
         # Apply transforms:
         if self.transforms is not None:
             images, annotations, metas = self.transforms(images, annotations, metas)
@@ -250,3 +271,32 @@ class JointDataset(Dataset):
                 num_frames = sum([info["length"] for info in self.sequence_infos[dataset][split].values()])
                 statistics.append(f"{dataset}.{split}, {num_sequences} sequences, {num_frames} frames.")
         return statistics
+
+    @staticmethod
+    def _load_obj_masks(mask_paths, image_size_hw):
+        """Load binary SAM masks from disk.
+        
+        Args:
+            mask_paths: List of paths to mask PNG files (or None for missing masks)
+            image_size_hw: Tuple of (height, width) for the image
+            
+        Returns:
+            torch.Tensor: Shape [N_obj, H, W] bool tensor of masks
+        """
+        h, w = image_size_hw
+        masks = []
+
+        for p in mask_paths:
+            if p is None:
+                masks.append(torch.zeros((h, w), dtype=torch.bool))
+                continue
+
+            m = Image.open(p).convert("L")
+            m = np.array(m)
+            m = torch.from_numpy(m > 0)   # binary bool mask
+            masks.append(m)
+
+        if len(masks) == 0:
+            return torch.zeros((0, h, w), dtype=torch.bool)
+
+        return torch.stack(masks, dim=0)   # [N_obj, H, W]

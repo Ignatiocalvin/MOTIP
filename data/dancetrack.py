@@ -16,6 +16,7 @@ class DanceTrack(OneDataset):
             sub_dir: str = "DanceTrack",
             split: str = "train",
             load_annotation: bool = True,
+            object_mask_root: str | None = None,   # SAM mask root directory
     ):
         super(DanceTrack, self).__init__(
             data_root=data_root,
@@ -25,11 +26,53 @@ class DanceTrack(OneDataset):
         )
 
         # Prepare the data:
+        self.object_mask_root = object_mask_root   # SAM mask root directory
+        # Cache whether mask root and per-sequence mask dirs exist.
+        # Avoids millions of stat() calls on Lustre when masks are not precomputed.
+        self._mask_root_exists = (
+            object_mask_root is not None and os.path.isdir(object_mask_root)
+        )
+        if self._mask_root_exists:
+            try:
+                self._sequences_with_masks = set(os.listdir(object_mask_root))
+            except OSError:
+                self._sequences_with_masks = set()
+        else:
+            self._sequences_with_masks = set()
         self.sequence_infos = self._get_sequence_infos()
         self.image_paths = self._get_image_paths()
         if self.load_annotation:
             self.annotations = self._get_annotations()
         return
+
+    def _get_mask_frame_dir(self, sequence_name: str, frame_id: int) -> str:
+        """Get SAM mask directory for a specific frame."""
+        assert self.object_mask_root is not None
+        return os.path.join(
+            self.object_mask_root,
+            sequence_name,
+            f"{frame_id:08d}",
+        )
+
+    def _resolve_mask_path(self, sequence_name: str, frame_id: int, obj_id: int) -> str | None:
+        """Resolve the mask file path for a specific object in a frame."""
+        # Fast path: if mask root or this sequence's masks don't exist, skip all I/O.
+        if not self._mask_root_exists:
+            return None
+        seq_key = sequence_name.split('/')[-1] if '/' in sequence_name else sequence_name
+        if seq_key not in self._sequences_with_masks:
+            return None
+        frame_dir = self._get_mask_frame_dir(sequence_name, frame_id)
+        candidates = [
+            os.path.join(frame_dir, f"id_{obj_id}.png"),
+            os.path.join(frame_dir, f"{obj_id}.png"),
+            os.path.join(frame_dir, f"{obj_id:04d}.png"),
+            os.path.join(frame_dir, f"{obj_id:06d}.png"),
+        ]
+        for p in candidates:
+            if os.path.exists(p):
+                return p
+        return None
 
     def _get_sequence_names(self):
         # Handle the nested structure of DanceTrack dataset
@@ -103,6 +146,16 @@ class DanceTrack(OneDataset):
                     bbox = [x, y, w, h]
                     category, visibility = 0, 1.0
                     ann_index = frame_id - 1    # 0-indexed for annotations
+
+                    # SAM: resolve mask path for this object in this frame
+                    mask_path = None
+                    if self.object_mask_root is not None:
+                        mask_path = self._resolve_mask_path(
+                            sequence_name=sequence_name,
+                            frame_id=frame_id,
+                            obj_id=obj_id,
+                        )
+
                     # Organized into the annotations:
                     annotations[sequence_name][ann_index] = append_annotation(
                         annotation=annotations[sequence_name][ann_index],
@@ -111,6 +164,8 @@ class DanceTrack(OneDataset):
                         bbox=bbox,
                         visibility=visibility,
                     )
+                    # SAM: keep mask path aligned with appended object
+                    annotations[sequence_name][ann_index]["obj_mask_path"].append(mask_path)
         # Determine whether each annotation is legal:
         for sequence_name in sequence_names:
             for i in range(self.sequence_infos[sequence_name]["length"]):
@@ -127,5 +182,6 @@ class DanceTrack(OneDataset):
                     "category": torch.zeros((0, ), dtype=torch.int64),
                     "bbox": torch.zeros((0, 4), dtype=torch.float32),
                     "visibility": torch.zeros((0, ), dtype=torch.float32),
+                    "obj_mask_path": [],   # SAM: list of mask paths per object
                 })
         return annotations

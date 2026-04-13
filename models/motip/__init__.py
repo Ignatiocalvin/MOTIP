@@ -168,6 +168,7 @@ def build(config: dict):
         detr_dim=hidden_dim,
         ffn_dim_ratio=config["FFN_DIM_RATIO"],
         feature_dim=config["FEATURE_DIM"],
+        use_concept_bottleneck=config.get("USE_CONCEPT_BOTTLENECK", False),
     ) if config["ONLY_DETR"] is False else None
     # 2. ID decoder:
     # Get concept configuration for ID decoder

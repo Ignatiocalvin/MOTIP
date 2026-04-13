@@ -9,4 +9,7 @@ import os
 if os.environ.get("PYTORCH_ENABLE_MPS_FALLBACK") is None:
     os.environ["PYTORCH_ENABLE_MPS_FALLBACK"] = "1"
 
-from rfdetr.detr import RFDETRBase, RFDETRLarge, RFDETRNano, RFDETRSmall, RFDETRMedium, RFDETRSegPreview
+# NOTE: RFDETRBase/Large/etc. imports (rfdetr.detr → rfdetr.main → peft)
+# are omitted here because peft hangs on HPC nodes without internet access.
+# MOTIP only uses rfdetr.models.* — this __init__ is intentionally lightweight.
+

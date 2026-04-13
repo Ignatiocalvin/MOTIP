@@ -100,6 +100,9 @@ def submit_and_evaluate(config: dict):
         else config["ONLY_DETR"],
         dtype=config.get("INFERENCE_DTYPE", "FP32"),
         concept_bottleneck_mode=config.get("MOTIP", {}).get("CONCEPT_BOTTLENECK_MODE", "hard"),
+        # SAM concept bottleneck parameters
+        use_concept_bottleneck=config.get("USE_CONCEPT_BOTTLENECK", False),
+        object_mask_root=config.get("OBJECT_MASK_ROOT", None),
     )
 
     if metrics is not None:
@@ -138,6 +141,10 @@ def submit_and_evaluate_one_model(
         inference_only_detr: bool = False,
         dtype: str = "FP32",
         concept_bottleneck_mode: str = "hard",
+        # SAM concept bottleneck parameters
+        use_concept_bottleneck: bool = False,
+        object_mask_root: str = None,
+        skip_existing: bool = False,
 ):
     # Build the datasets:
     inference_dataset = dataset_classes[dataset](
@@ -177,6 +184,12 @@ def submit_and_evaluate_one_model(
 
     # Process each sequence:
     for sequence_name in inference_dataset.sequence_infos.keys():
+        # Skip if tracker output already exists
+        if skip_existing and not is_fake:
+            existing_file = os.path.join(outputs_dir, "tracker", f"{sequence_name}.txt")
+            if os.path.exists(existing_file) and os.path.getsize(existing_file) > 0:
+                logger.info(f"Skipping sequence {sequence_name} (output already exists).", only_main=False)
+                continue
         # break
         sequence_dataset = SeqDataset(
             seq_info=inference_dataset.sequence_infos[sequence_name],
@@ -209,6 +222,10 @@ def submit_and_evaluate_one_model(
             only_detr=inference_only_detr,
             dtype=dtype,
             concept_bottleneck_mode=concept_bottleneck_mode,
+            # SAM concept bottleneck parameters
+            use_concept_bottleneck=use_concept_bottleneck,
+            object_mask_root=object_mask_root,
+            sequence_name=sequence_name,
         )
         if is_fake:
             logger.info(
@@ -375,7 +392,7 @@ def get_results_of_one_sequence(
         image.tensors = image.tensors.cuda()
         image.mask = image.mask.cuda()
         # image = nested_tensor_from_tensor_list(tensor_list=[image[0]])
-        runtime_tracker.update(image=image)
+        runtime_tracker.update(image=image, image_path=image_path)
         _results = runtime_tracker.get_track_results()
         tracker_results.append(_results)
     fps = (len(sequence_loader) - 10) / (time.time() - begin_time)

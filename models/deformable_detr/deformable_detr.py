@@ -270,6 +270,10 @@ class DeformableDETR(nn.Module):
         # Output the outputs of last decoder layer.
         # We need these outputs to generate the embeddings for objects.
         out["outputs"] = hs[-1]
+
+        # Spatial feature map for SAM concept pooling (last feature level)
+        out["feature_map"] = srcs[-1]
+
         return out
 
     @torch.jit.unused

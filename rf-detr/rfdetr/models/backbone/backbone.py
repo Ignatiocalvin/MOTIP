@@ -22,7 +22,12 @@ import torch.nn.functional as F
 from torch import nn
 
 from transformers import AutoModel, AutoProcessor, AutoModelForCausalLM, AutoConfig, AutoBackbone
-from peft import LoraConfig, get_peft_model, PeftModel
+# peft (LoRA) is optional and hangs on HPC nodes without internet access.
+# Import is intentionally omitted at module level; LoRA is not used in MOTIP training.
+_PEFT_AVAILABLE = False
+LoraConfig = None
+get_peft_model = None
+PeftModel = None
 
 from rfdetr.util.misc import NestedTensor, is_main_process
 
@@ -114,7 +119,7 @@ class Backbone(BackboneBase):
         self._forward_origin = self.forward
         self.forward = self.forward_export
 
-        if isinstance(self.encoder, PeftModel):
+        if PeftModel is not None and isinstance(self.encoder, PeftModel):
             print("Merging and unloading LoRA weights")
             self.encoder.merge_and_unload()
 
