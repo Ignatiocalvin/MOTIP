@@ -1,15 +1,9 @@
 #!/bin/bash
 
-# Install Python dependencies
-echo "Installing Python dependencies..."
-pip install -r requirements.txt
-
-# Create pretrains directory if it doesn't exist
-mkdir -p pretrains
-# Download the pretrained model
-wget -O pretrains/r50_deformable_detr_coco.pth https://github.com/MCG-NJU/MOTIP/releases/download/v0.1/r50_deformable_detr_coco.pth
-
-# P-DESTRE Dataset Download and Preprocessing Script
+# ================================================================== #
+#  MOTIP Setup Script                                                 #
+#  Creates conda env, installs dependencies, builds CUDA ops         #
+# ================================================================== #
 
 set -e  # Exit on any error
 
@@ -18,158 +12,139 @@ MOTIP_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && cd .. && pwd)"
 cd "${MOTIP_ROOT}"
 
 echo "========================================"
+echo "MOTIP Environment Setup"
+echo "========================================"
+echo "Working directory: ${MOTIP_ROOT}"
+echo ""
+
+# ------------------------------------------------------------------ #
+# 1. Create conda environment with Python 3.12                        #
+# ------------------------------------------------------------------ #
+ENV_NAME="MOTIP"
+
+# Initialize conda for this shell
+if [ -f "$HOME/miniconda3/etc/profile.d/conda.sh" ]; then
+    source "$HOME/miniconda3/etc/profile.d/conda.sh"
+elif [ -f "$HOME/anaconda3/etc/profile.d/conda.sh" ]; then
+    source "$HOME/anaconda3/etc/profile.d/conda.sh"
+else
+    echo "ERROR: Could not find conda. Please install miniconda or anaconda first."
+    exit 1
+fi
+
+if conda env list | grep -qE "^${ENV_NAME}\s"; then
+    echo "[ENV] Conda env '$ENV_NAME' already exists."
+else
+    echo "[ENV] Creating conda env '$ENV_NAME' with Python 3.12 ..."
+    conda create -n "$ENV_NAME" python=3.12 -y
+fi
+
+echo "[ENV] Activating $ENV_NAME ..."
+conda activate "$ENV_NAME"
+echo "[ENV] Python: $(which python) ($(python --version))"
+echo ""
+
+# ------------------------------------------------------------------ #
+# 2. Install Python dependencies                                      #
+# ------------------------------------------------------------------ #
+echo "[PIP] Installing Python dependencies..."
+pip install -r "${MOTIP_ROOT}/requirements.txt"
+echo "[PIP] Done."
+echo ""
+
+# ------------------------------------------------------------------ #
+# 3. Download pretrained model                                        #
+# ------------------------------------------------------------------ #
+mkdir -p "${MOTIP_ROOT}/pretrains"
+if [ ! -f "${MOTIP_ROOT}/pretrains/r50_deformable_detr_coco.pth" ]; then
+    echo "[PRETRAIN] Downloading R50 pretrained model..."
+    wget -O "${MOTIP_ROOT}/pretrains/r50_deformable_detr_coco.pth" \
+        https://github.com/MCG-NJU/MOTIP/releases/download/v0.1/r50_deformable_detr_coco.pth
+    echo "[PRETRAIN] Done."
+else
+    echo "[PRETRAIN] r50_deformable_detr_coco.pth already exists, skipping."
+fi
+echo ""
+
+# ------------------------------------------------------------------ #
+# 4. P-DESTRE Dataset (already downloaded — uncomment to re-run)     #
+# ------------------------------------------------------------------ #
+echo "========================================"
 echo "P-DESTRE Dataset Setup"
 echo "========================================"
-echo ""
 echo "Working directory: ${MOTIP_ROOT}"
 echo ""
 
 # Create data directory if it doesn't exist
-mkdir -p data
-cd data
+# mkdir -p data
+# cd data
 
 # Download the dataset
-echo "Downloading P-DESTRE dataset..."
+# echo "Downloading P-DESTRE dataset..."
 # wget https://socia-lab.di.ubi.pt/%7Ehugomcp/dataset.tar
 
 # Extract the tar file
-echo "Extracting dataset..."
-tar -xf dataset.tar
+# echo "Extracting dataset..."
+# tar -xf dataset.tar
 
 # Check if P-DESTRE directory exists
-if [ ! -d "P-DESTRE" ]; then
-    echo "Error: P-DESTRE directory not found after extraction"
-    exit 1
-fi
+# if [ ! -d "P-DESTRE" ]; then
+#     echo "Error: P-DESTRE directory not found after extraction"
+#     exit 1
+# fi
 
-cd P-DESTRE
+# cd P-DESTRE
 
 # Rename annotation folder to annotations if needed
-if [ -d "annotation" ] && [ ! -d "annotations" ]; then
-    mv annotation annotations
-    echo "Renamed 'annotation' folder to 'annotations'"
-elif [ -d "annotations" ]; then
-    echo "Annotations folder already exists"
-else
-    echo "Warning: Neither 'annotation' nor 'annotations' folder found"
-fi
+# if [ -d "annotation" ] && [ ! -d "annotations" ]; then
+#     mv annotation annotations
+# fi
 
-# Remove specific annotation and video files
-echo "Removing specified files..."
-
-# Remove 22-10-2019-1-2 files
-if [ -f "annotations/22-10-2019-1-2.txt" ]; then
-    rm annotations/22-10-2019-1-2.txt
-    echo "Removed annotations/22-10-2019-1-2.txt"
-else
-    echo "Warning: annotations/22-10-2019-1-2.txt not found"
-fi
-
-if [ -f "videos/22-10-2019-1-2.MP4" ]; then
-    rm videos/22-10-2019-1-2.MP4
-    echo "Removed videos/22-10-2019-1-2.MP4"
-else
-    echo "Warning: videos/22-10-2019-1-2.MP4 not found"
-fi
-
-# Remove 13-11-2019-4-3 files
-if [ -f "annotations/13-11-2019-4-3.txt" ]; then
-    rm annotations/13-11-2019-4-3.txt
-    echo "Removed annotations/13-11-2019-4-3.txt"
-else
-    echo "Warning: annotations/13-11-2019-4-3.txt not found"
-fi
-
-if [ -f "videos/13-11-2019-4-3.MP4" ]; then
-    rm videos/13-11-2019-4-3.MP4
-    echo "Removed videos/13-11-2019-4-3.MP4"
-else
-    echo "Warning: videos/13-11-2019-4-3.MP4 not found"
-fi
+# Remove excluded sequence files
+# rm -f annotations/22-10-2019-1-2.txt videos/22-10-2019-1-2.MP4
+# rm -f annotations/13-11-2019-4-3.txt videos/13-11-2019-4-3.MP4
 
 # Run the preprocessing script from data/P-DESTRE/
-echo ""
-echo "Extracting frames from videos..."
-if [ -f "preprocess_pdestre.py" ]; then
-    python3 preprocess_pdestre.py
-else
-    echo "Warning: preprocess_pdestre.py not found in data/P-DESTRE/"
-    echo "Skipping frame extraction. You may need to run it manually."
-fi
-
-# Verify splits directory exists
-echo ""
-if [ ! -d "splits" ]; then
-    echo "Warning: splits/ directory not found in data/P-DESTRE/"
-    echo "Make sure to create train/val/test split files before training."
-else
-    echo "Splits directory found: data/P-DESTRE/splits/"
-fi
+# python3 preprocess_pdestre.py
 
 # Clean up the downloaded tar file
-cd ..
-if [ -f "dataset.tar" ]; then
-    echo ""
-    echo "Cleaning up dataset.tar..."
-    rm dataset.tar
-fi
-
 # cd ..
-
-# echo ""
-# echo "=========================================="
-# echo "Cloning RF-DETR Repository"
-# echo "=========================================="
-# Clone RF-DETR repository as sibling to MOTIP directory
-# RFDETR_DIR="${MOTIP_ROOT}/../rf-detr"
-# if [ ! -d "$RFDETR_DIR" ]; then
-#     echo "Cloning RF-DETR repository..."
-#     cd "${MOTIP_ROOT}/.."
-#     git clone https://github.com/roboflow/rf-detr.git rf-detr
-#     echo "RF-DETR repository cloned to: $RFDETR_DIR"
-# else
-#     echo "RF-DETR repository already exists at: $RFDETR_DIR"
-# fi
-
-# Apply compatibility fixes to RF-DETR's DINOv2 backbone
-# echo ""
-# echo "Applying transformers compatibility fixes to RF-DETR..."
-# DINOV2_SOURCE="${MOTIP_ROOT}/rf-detr/rfdetr/models/backbone/dinov2_with_windowed_attn.py"
-# DINOV2_TARGET="${RFDETR_DIR}/rfdetr/models/backbone/dinov2_with_windowed_attn.py"
-
-# if [ -f "$DINOV2_SOURCE" ]; then
-#     echo "Copying fixed dinov2_with_windowed_attn.py to RF-DETR..."
-#     cp "$DINOV2_SOURCE" "$DINOV2_TARGET"
-#     echo "✓ Applied compatibility fixes for transformers v5.x"
-# else
-#     echo "Warning: Fixed DINOv2 file not found at: $DINOV2_SOURCE"
-#     echo "You may need to manually apply transformers compatibility fixes."
-# fi
+# rm -f dataset.tar
 
 cd "${MOTIP_ROOT}"
-
+echo "[P-DESTRE] Dataset already preprocessed — sections above commented out."
 echo ""
-echo "=========================================="
+
+# ------------------------------------------------------------------ #
+# 5. Build CUDA Operators (skip if no GPU - will build in SLURM job) #
+# ------------------------------------------------------------------ #
+echo "========================================"
 echo "Building CUDA Operators"
-echo "=========================================="
-echo "Building MultiScaleDeformableAttention CUDA extension..."
-cd "${MOTIP_ROOT}/models/ops"
-python3 setup.py build install
-cd "${MOTIP_ROOT}"
-echo "CUDA operators built successfully!"
+echo "========================================"
 
+# Check if CUDA is available
+if python -c "import torch; assert torch.cuda.is_available()" 2>/dev/null; then
+    echo "Building MultiScaleDeformableAttention CUDA extension..."
+    cd "${MOTIP_ROOT}/models/ops"
+    python setup.py build install
+    cd "${MOTIP_ROOT}"
+    echo "CUDA operators built successfully!"
+else
+    echo "[SKIP] No GPU available on login node."
+    echo "       CUDA ops will be built when you submit a SLURM job."
+fi
+
+# ------------------------------------------------------------------ #
+# 6. Done                                                             #
+# ------------------------------------------------------------------ #
 echo ""
-echo "=========================================="
+echo "========================================"
 echo "Setup Complete!"
-echo "=========================================="
-echo "Dataset location: ${MOTIP_ROOT}/data/P-DESTRE/"
-if [ -d "${MOTIP_ROOT}/data/P-DESTRE/images" ]; then
-    echo "Extracted frames: data/P-DESTRE/images/"
-fi
-if [ -d "${MOTIP_ROOT}/data/P-DESTRE/annotations" ]; then
-    echo "Annotations: data/P-DESTRE/annotations/"
-fi
-if [ -d "${MOTIP_ROOT}/data/P-DESTRE/splits" ]; then
-    echo "Splits: data/P-DESTRE/splits/"
-fi
+echo "========================================"
+echo ""
+echo "To activate the environment in future sessions:"
+echo "    conda activate $ENV_NAME"
+echo ""
+echo "To run a smoke test, submit a SLURM job:"
+echo "    sbatch setup_and_smoke.sh"
 echo ""
