@@ -87,7 +87,7 @@ def submit_and_evaluate(config: dict):
         dataset=config["INFERENCE_DATASET"],
         data_split=config["INFERENCE_SPLIT"],
         outputs_dir=outputs_dir,
-        image_max_longer=config["INFERENCE_MAX_LONGER"],    # the max shorter side of the image is set to 800 by default
+        image_max_longer=config.get("INFERENCE_MAX_LONGER", 1333),
         size_divisibility=config.get("SIZE_DIVISIBILITY", 0),
         use_sigmoid=config.get("USE_FOCAL_LOSS", False),
         assignment_protocol=config.get("ASSIGNMENT_PROTOCOL", "hungarian"),

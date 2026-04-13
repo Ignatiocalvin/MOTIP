@@ -84,7 +84,7 @@ def main():
         dataset=config["INFERENCE_DATASET"],
         data_split=config["INFERENCE_SPLIT"],
         outputs_dir=eval_dir,
-        image_max_longer=config["INFERENCE_MAX_LONGER"],
+        image_max_longer=config.get("INFERENCE_MAX_LONGER", 1333),
         size_divisibility=config.get("SIZE_DIVISIBILITY", 0),
         miss_tolerance=config["MISS_TOLERANCE"],
         use_sigmoid=config["USE_FOCAL_LOSS"] if "USE_FOCAL_LOSS" in config else False,

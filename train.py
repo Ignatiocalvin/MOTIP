@@ -334,6 +334,8 @@ def train_engine(config: dict):
             concept_bottleneck_mode=config.get("MOTIP", {}).get("CONCEPT_BOTTLENECK_MODE", "hard"),
             # SAM concept bottleneck: use feature map + object masks
             use_concept_bottleneck=config.get("USE_CONCEPT_BOTTLENECK", False),
+            # Limit epoch to N steps (for smoke tests; None = full epoch)
+            max_steps_per_epoch=config.get("MAX_STEPS_PER_EPOCH", None),
         )
 
         # Get learning rate:
@@ -374,7 +376,7 @@ def train_engine(config: dict):
                     dataset=config["INFERENCE_DATASET"],
                     data_split=config["INFERENCE_SPLIT"],
                     outputs_dir=os.path.join(outputs_dir, "train", "eval_during_train", f"epoch_{epoch}"),
-                    image_max_longer=config["INFERENCE_MAX_LONGER"],
+                    image_max_longer=config.get("INFERENCE_MAX_LONGER", 1333),
                     size_divisibility=config.get("SIZE_DIVISIBILITY", 0),
                     miss_tolerance=config["MISS_TOLERANCE"],
                     use_sigmoid=config["USE_FOCAL_LOSS"] if "USE_FOCAL_LOSS" in config else False,
@@ -443,6 +445,8 @@ def train_one_epoch(
         concept_bottleneck_mode: str = "hard",
         # SAM concept bottleneck: use feature map + object masks
         use_concept_bottleneck: bool = False,
+        # Limit steps per epoch (smoke tests only; None = full epoch)
+        max_steps_per_epoch: int = None,
 ):
     current_last_checkpoint_idx = 0
 
@@ -470,8 +474,13 @@ def train_one_epoch(
     if resume_from_step > 0:
         logger.info(log=f"Resuming from step {resume_from_step}. Skipping first {resume_from_step} steps...")
 
-    logger.info(log=f"[DEBUG] Starting dataloader iteration. Total steps: {len(dataloader)}")
+    _total_steps = min(len(dataloader), max_steps_per_epoch) if max_steps_per_epoch is not None else len(dataloader)
+    logger.info(log=f"[DEBUG] Starting dataloader iteration. Total steps: {_total_steps}" +
+                    (f" (capped from {len(dataloader)} by MAX_STEPS_PER_EPOCH)" if max_steps_per_epoch is not None else ""))
     for step, samples in enumerate(dataloader):
+        # Stop early if max_steps_per_epoch is set:
+        if max_steps_per_epoch is not None and step >= max_steps_per_epoch:
+            break
         # Skip steps if resuming from mid-epoch checkpoint:
         if step < resume_from_step:
             if step % 1000 == 0:
@@ -772,9 +781,9 @@ def train_one_epoch(
             metrics.update(name="max_cuda_mem(MB)", value=_max_cuda_memory)
             # Sync the metrics:
             metrics.sync()
-            eta = tps.eta(total_steps=len(dataloader), current_steps=step)
+            eta = tps.eta(total_steps=_total_steps, current_steps=step)
             logger.metrics(
-                log=f"[Epoch: {epoch}] [{step}/{len(dataloader)}] "
+                log=f"[Epoch: {epoch}] [{step}/{_total_steps}] "
                     f"[tps: {tps.average:.2f}s] [eta: {TPS.format(eta)}] ",
                 metrics=metrics,
                 global_step=states["global_step"],
