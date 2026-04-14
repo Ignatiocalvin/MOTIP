@@ -172,6 +172,24 @@ def verify_structure(output_dir: str, splits: list) -> bool:
     return all_ok
 
 
+def generate_seqmaps(output_dir: str, splits: list):
+    """Copy official {split}_seqmap.txt files (from scripts/) to the dataset directory.
+    
+    The seqmap files are stored as static assets in the same directory as this
+    script, ensuring the exact official split assignments are always used.
+    """
+    for split in splits:
+        src = os.path.join(SCRIPT_DIR, f"{split}_seqmap.txt")
+        dst = os.path.join(output_dir, f"{split}_seqmap.txt")
+        
+        if not os.path.exists(src):
+            print(f"  WARNING: {src} not found — skipping seqmap for {split}")
+            continue
+        
+        shutil.copy2(src, dst)
+        print(f"  Copied {split}_seqmap.txt")
+
+
 def main():
     args = parse_args()
 
@@ -189,6 +207,10 @@ def main():
     if not splits_to_download:
         print("All requested splits already exist. Verifying structure...")
         verify_structure(args.output_dir, args.splits)
+        # Ensure seqmap files exist (may be missing from older downloads)
+        print()
+        print("Ensuring seqmap files exist...")
+        generate_seqmaps(args.output_dir, args.splits)
         return
 
     for s, ok in existing.items():
@@ -248,6 +270,12 @@ def main():
     print()
     print("Final structure check:")
     ok = verify_structure(args.output_dir, args.splits)
+    
+    # Generate seqmap files (required by TrackEval)
+    print()
+    print("Generating seqmap files...")
+    generate_seqmaps(args.output_dir, args.splits)
+    
     print()
     if ok:
         print(f"Dataset ready at: {args.output_dir}")
