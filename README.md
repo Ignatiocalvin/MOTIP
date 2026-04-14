@@ -217,9 +217,12 @@ MOTIP/
 │   ├── compute_hota_pdestre.py # HOTA computation via TrackEval
 │   └── EPOCH_METRICS_ALL_MODELS.md  # Auto-generated metrics summary
 │
-├── scripts/                    # Utility scripts
-│   ├── smoke_test.sh           # Quick validation (R50)
-│   ├── smoke_test_rfdetr.sh    # Quick validation (RF-DETR)
+├── scripts/                    # Utility & maintenance scripts
+│   ├── download_and_preprocess.sh  # Full setup (env + data + weights)
+│   ├── smoke_test.sh               # Quick validation (R50)
+│   ├── smoke_test_rfdetr.sh        # Quick validation (RF-DETR)
+│   ├── download_dancetrack.py      # DanceTrack download helper
+│   ├── rebuild_cuda_ops.sh         # Force-rebuild CUDA extension
 │   └── ...
 │
 └── TrackEval/                  # External tracking evaluation library

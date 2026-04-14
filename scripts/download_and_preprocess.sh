@@ -217,12 +217,13 @@ else
     echo "         P-DESTRE may not have been extracted correctly."
 fi
 
-# 2d. Verify splits exist
+# 2d. Ensure splits exist (copy from repo if missing)
 if [ -d "${PDESTRE_DIR}/splits" ]; then
     echo "[P-DESTRE] Splits directory found."
 else
-    echo "WARNING: No splits/ directory in ${PDESTRE_DIR}."
-    echo "         Pre-generated splits are in ${MOTIP_ROOT}/splits/"
+    echo "[P-DESTRE] Copying pre-generated splits from ${MOTIP_ROOT}/splits/ ..."
+    cp -r "${MOTIP_ROOT}/splits" "${PDESTRE_DIR}/splits"
+    echo "[P-DESTRE] Splits copied."
 fi
 
 # Clean up the downloaded tar file if it's still in data/

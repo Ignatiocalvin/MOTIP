@@ -153,6 +153,9 @@ MOTIP/
 ├── train.py                    # Main training script
 ├── train_r50.sh                # SLURM: R50 training
 ├── train_rf-detr.sh            # SLURM: RF-DETR training
+├── train_r50_sam.sh            # SLURM: R50 + SAM training
+├── train_rf-detr_sam.sh        # SLURM: RF-DETR + SAM training
+├── runtime_option.py           # CLI argument definitions (imported by train.py)
 ├── requirements.txt            # Python dependencies
 ├── configs/                    # YAML experiment configs
 ├── data/                       # Dataset loaders + P-DESTRE files
@@ -167,10 +170,12 @@ MOTIP/
 │   ├── eval_checkpoint.sh      # Evaluate a single checkpoint
 │   ├── submit_and_evaluate.py  # Core inference + metrics
 │   └── compute_all_metrics.py  # Aggregate metrics across runs
-└── scripts/                    # Utility scripts
+└── scripts/                    # Utility & maintenance scripts
     ├── download_and_preprocess.sh
     ├── smoke_test.sh
-    └── smoke_test_rfdetr.sh
+    ├── smoke_test_rfdetr.sh
+    ├── rebuild_cuda_ops.sh      # Force-rebuild CUDA extension on GPU node
+    └── download_dancetrack.py
 ```
 
 ---
