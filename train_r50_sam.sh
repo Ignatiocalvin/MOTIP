@@ -48,7 +48,7 @@ trap handle_requeue SIGUSR1
 
 # Activate conda environment
 source /pfs/work9/workspace/scratch/ma_ighidaya-thesis_ignatio/anaconda3/etc/profile.d/conda.sh
-conda activate motip
+conda activate MOTIP
 cd "$SCRIPT_DIR"
 
 # Create logs directory if it doesn't exist

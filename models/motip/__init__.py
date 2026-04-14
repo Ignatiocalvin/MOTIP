@@ -76,7 +76,7 @@ def build_rfdetr_args(config: dict) -> Args:
     # Concept settings
     if "MOTIP" in config and "N_CONCEPTS" in config["MOTIP"]:
         args.num_concepts = config["MOTIP"]["N_CONCEPTS"]
-        args.concept_loss_coef = config["MOTIP"]["CONCEPT_LOSS_COEF"]
+        args.concept_loss_coef = config["MOTIP"].get("CONCEPT_LOSS_COEF", 0.5)
         args.losses = config["MOTIP"]["DETR_LOSSES"]
         if "CONCEPT_CLASSES" in config["MOTIP"]:
             args.concept_classes = [tuple(c) for c in config["MOTIP"]["CONCEPT_CLASSES"]]

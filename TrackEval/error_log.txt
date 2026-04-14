@@ -1,0 +1,26 @@
+MotChallenge2DBox
+epoch_2
+Traceback (most recent call last):
+  File "/pfs/work9/workspace/scratch/ma_ighidaya-thesis_ignatio/MOTIP/TrackEval/trackeval/eval.py", line 86, in evaluate
+    res[curr_seq] = eval_sequence(curr_seq, dataset, tracker, class_list, metrics_list,
+                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/pfs/work9/workspace/scratch/ma_ighidaya-thesis_ignatio/MOTIP/TrackEval/trackeval/_timing.py", line 64, in wrap
+    return f(*args, **kw)
+           ^^^^^^^^^^^^^^
+  File "/pfs/work9/workspace/scratch/ma_ighidaya-thesis_ignatio/MOTIP/TrackEval/trackeval/eval.py", line 191, in eval_sequence
+    raw_data = dataset.get_raw_seq_data(tracker, seq)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/pfs/work9/workspace/scratch/ma_ighidaya-thesis_ignatio/MOTIP/TrackEval/trackeval/_timing.py", line 64, in wrap
+    return f(*args, **kw)
+           ^^^^^^^^^^^^^^
+  File "/pfs/work9/workspace/scratch/ma_ighidaya-thesis_ignatio/MOTIP/TrackEval/trackeval/datasets/_base_dataset.py", line 93, in get_raw_seq_data
+    raw_tracker_data = self._load_raw_file(tracker, seq, is_gt=False)
+                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/pfs/work9/workspace/scratch/ma_ighidaya-thesis_ignatio/MOTIP/TrackEval/trackeval/datasets/mot_challenge_2d_box.py", line 219, in _load_raw_file
+    raise TrackEvalException(
+trackeval.utils.TrackEvalException: Tracking data contains the following invalid timesteps in seq 11-11-2019-1-2: 1754, , 1755, , 1756, 
+
+
+
+
+

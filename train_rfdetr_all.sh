@@ -57,11 +57,10 @@ fi
 # Source conda
 if [ -f ~/miniconda3/etc/profile.d/conda.sh ]; then
     source ~/miniconda3/etc/profile.d/conda.sh
-    conda activate base
 elif [ -f ~/anaconda3/etc/profile.d/conda.sh ]; then
     source ~/anaconda3/etc/profile.d/conda.sh
-    conda activate base
 fi
+conda activate MOTIP
 
 # Set CUDA environment
 export TORCH_CUDA_ARCH_LIST="8.9"  # RTX 4070 Ti SUPER

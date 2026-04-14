@@ -6,6 +6,16 @@ import os
 import sys
 import argparse
 import torch
+
+# Add project root and rf-detr to Python path
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+MOTIP_ROOT = os.path.abspath(os.path.join(SCRIPT_DIR, '..'))
+if MOTIP_ROOT not in sys.path:
+    sys.path.insert(0, MOTIP_ROOT)
+RFDETR_PATH = os.path.join(MOTIP_ROOT, 'rf-detr')
+if os.path.exists(RFDETR_PATH) and RFDETR_PATH not in sys.path:
+    sys.path.insert(0, RFDETR_PATH)
+
 from accelerate import Accelerator
 from accelerate.state import PartialState
 
