@@ -98,18 +98,12 @@ python -c "import MultiScaleDeformableAttention" 2>/dev/null || {
 
 declare -A CONFIGS
 CONFIGS["base"]="configs/rfdetr_large_motip_pdestre_base.yaml"
-CONFIGS["base_small"]="configs/rfdetr_base_motip_pdestre_base.yaml"
 CONFIGS["2concept"]="configs/rfdetr_large_motip_pdestre_2concepts.yaml"
-CONFIGS["3concept"]="configs/rfdetr_large_motip_pdestre_3concepts.yaml"
-CONFIGS["7concept_manual"]="configs/rfdetr_large_motip_pdestre_7concepts_manual.yaml"
 CONFIGS["7concept_learnable"]="configs/rfdetr_large_motip_pdestre_7concepts_learnable.yaml"
 
 declare -A EXP_NAMES
 EXP_NAMES["base"]="rfdetr_large_motip_pdestre_base_fold"
-EXP_NAMES["base_small"]="rfdetr_base_motip_pdestre_base_fold"
 EXP_NAMES["2concept"]="rfdetr_large_motip_pdestre_2concepts_fold"
-EXP_NAMES["3concept"]="rfdetr_large_motip_pdestre_3concepts_fold"
-EXP_NAMES["7concept_manual"]="rfdetr_large_motip_pdestre_7concepts_manual_fold"
 EXP_NAMES["7concept_learnable"]="rfdetr_large_motip_pdestre_7concepts_learnable_fold"
 
 # ============================================

@@ -2,21 +2,27 @@
 
 # ================================================================== #
 #  MOTIP Setup, Download & Preprocess Script                          #
-#  Creates conda env, downloads data, precomputes SAM masks          #
+#                                                                      #
+#  This script handles the full setup pipeline:                        #
+#    1. Create conda environment & install dependencies                #
+#    2. Preprocess P-DESTRE (extract frames from videos)               #
+#    3. Download pretrained weights (R50, RF-DETR, SAM)                #
+#    4. Download DanceTrack dataset from HuggingFace                   #
+#    5. Clone RF-DETR and apply compatibility fixes                    #
+#    6. Build CUDA extension (if on a GPU node)                        #
+#                                                                      #
+#  PREREQUISITE: Download P-DESTRE manually from Google Drive and      #
+#  extract it into data/ BEFORE running this script. See README.md.    #
+#                                                                      #
 # ================================================================== #
 #
 # Usage:
-#   ./scripts/download_and_preprocess.sh                 # Full setup
-#   ./scripts/download_and_preprocess.sh --env-only      # Only setup env
-#   ./scripts/download_and_preprocess.sh --data-only     # Only download data
-#   ./scripts/download_and_preprocess.sh --masks-only    # Only precompute masks
-#   ./scripts/download_and_preprocess.sh --skip-masks    # Setup + data, no masks
+#   ./scripts/download_and_preprocess.sh             # Full setup
+#   ./scripts/download_and_preprocess.sh --env-only  # Only conda env + pip
+#   ./scripts/download_and_preprocess.sh --skip-env  # Skip env, do the rest
 #
 # Environment variables:
-#   ENV_NAME     - Conda environment name (default: MOTIP_fresh)
-#   DATA_ROOT    - Data directory (default: ./data)
-#   MASK_ROOT    - SAM masks directory (default: ./precomputed_sam_masks)
-#   SAM_CKPT     - SAM checkpoint path (default: ./pretrains/sam_vit_b_01ec64.pth)
+#   ENV_NAME  - Conda environment name (default: MOTIP)
 #
 # ================================================================== #
 
@@ -26,39 +32,28 @@ set -e  # Exit on any error
 # Parse command-line arguments                                        #
 # ------------------------------------------------------------------ #
 DO_ENV=true
-DO_DATA=true
-DO_MASKS=true
+DO_REST=true
 
 while [[ $# -gt 0 ]]; do
     case $1 in
         --env-only)
-            DO_DATA=false
-            DO_MASKS=false
+            DO_REST=false
             shift
             ;;
-        --data-only)
+        --skip-env)
             DO_ENV=false
-            DO_MASKS=false
-            shift
-            ;;
-        --masks-only)
-            DO_ENV=false
-            DO_DATA=false
-            shift
-            ;;
-        --skip-masks)
-            DO_MASKS=false
             shift
             ;;
         -h|--help)
             echo "Usage: $0 [OPTIONS]"
             echo ""
             echo "Options:"
-            echo "  --env-only     Only setup conda environment"
-            echo "  --data-only    Only download datasets"
-            echo "  --masks-only   Only precompute SAM masks"
-            echo "  --skip-masks   Skip SAM mask precomputation"
-            echo "  -h, --help     Show this help message"
+            echo "  --env-only   Only setup conda environment + pip install"
+            echo "  --skip-env   Skip environment setup, do everything else"
+            echo "  -h, --help   Show this help message"
+            echo ""
+            echo "PREREQUISITE: Download P-DESTRE from Google Drive first."
+            echo "  See README.md Section 2 for the download link."
             exit 0
             ;;
         *)
@@ -74,25 +69,18 @@ done
 MOTIP_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && cd .. && pwd)"
 cd "${MOTIP_ROOT}"
 
-# Configurable via environment variables
-ENV_NAME="${ENV_NAME:-MOTIP_fresh}"
-DATA_ROOT="${DATA_ROOT:-${MOTIP_ROOT}/data}"
-MASK_ROOT="${MASK_ROOT:-${MOTIP_ROOT}/precomputed_sam_masks}"
-SAM_CKPT="${SAM_CKPT:-${MOTIP_ROOT}/pretrains/sam_vit_b_01ec64.pth}"
-SAM_MODEL_TYPE="${SAM_MODEL_TYPE:-vit_b}"
+ENV_NAME="${ENV_NAME:-MOTIP}"
+DATA_ROOT="${MOTIP_ROOT}/data"
+PDESTRE_DIR="${DATA_ROOT}/P-DESTRE"
+PRETRAINS_DIR="${MOTIP_ROOT}/pretrains"
 
-echo "========================================"
-echo "MOTIP Setup, Download & Preprocess"
-echo "========================================"
-echo "Working directory: ${MOTIP_ROOT}"
-echo "Data root:         ${DATA_ROOT}"
-echo "Mask root:         ${MASK_ROOT}"
-echo "SAM checkpoint:    ${SAM_CKPT}"
+echo "========================================================"
+echo "  MOTIP Setup, Download & Preprocess"
+echo "========================================================"
 echo ""
-echo "Steps to run:"
-echo "  Environment setup: ${DO_ENV}"
-echo "  Data download:     ${DO_DATA}"
-echo "  SAM masks:         ${DO_MASKS}"
+echo "  Working directory:  ${MOTIP_ROOT}"
+echo "  Conda environment:  ${ENV_NAME}"
+echo "  Data directory:     ${DATA_ROOT}"
 echo ""
 
 # ------------------------------------------------------------------ #
@@ -104,7 +92,8 @@ init_conda() {
     elif [ -f "$HOME/anaconda3/etc/profile.d/conda.sh" ]; then
         source "$HOME/anaconda3/etc/profile.d/conda.sh"
     else
-        echo "ERROR: Could not find conda. Please install miniconda or anaconda first."
+        echo "ERROR: Could not find conda installation."
+        echo "       Install miniconda3 or anaconda3 first."
         exit 1
     fi
 }
@@ -113,165 +102,314 @@ init_conda() {
 # 1. Environment Setup                                                #
 # ================================================================== #
 if [ "$DO_ENV" = true ]; then
-    echo "========================================"
-    echo "1. Environment Setup"
-    echo "========================================"
+    echo "========================================================"
+    echo "  Step 1: Environment Setup"
+    echo "========================================================"
+    echo ""
 
     init_conda
 
+    # Create conda environment if it doesn't exist
     if conda env list | grep -qE "^${ENV_NAME}\s"; then
-        echo "[ENV] Conda env '$ENV_NAME' already exists."
+        echo "[ENV] Conda environment '${ENV_NAME}' already exists."
     else
-        echo "[ENV] Creating conda env '$ENV_NAME' with Python 3.12 ..."
-        conda create -n "$ENV_NAME" python=3.12 -y
+        echo "[ENV] Creating conda environment '${ENV_NAME}' (Python 3.12)..."
+        conda create -n "${ENV_NAME}" python=3.12 -y
     fi
 
-    echo "[ENV] Activating $ENV_NAME ..."
-    conda activate "$ENV_NAME"
+    echo "[ENV] Activating ${ENV_NAME}..."
+    conda activate "${ENV_NAME}"
     echo "[ENV] Python: $(which python) ($(python --version))"
     echo ""
 
     # Install Python dependencies
-    echo "[PIP] Installing Python dependencies..."
+    echo "[PIP] Installing requirements.txt..."
     pip install -r "${MOTIP_ROOT}/requirements.txt"
-    
-    # Install huggingface_hub for downloading datasets
+
+    # Extra packages needed for setup scripts
     pip install huggingface_hub --quiet
-    
-    # Install segment-anything for SAM mask precomputation
     pip install segment-anything --quiet
-    
+
     echo "[PIP] Done."
     echo ""
-
-    # Build CUDA Operators (skip if no GPU - will build in SLURM job)
-    echo "[CUDA] Checking for GPU..."
-    if python -c "import torch; assert torch.cuda.is_available()" 2>/dev/null; then
-        echo "[CUDA] Building MultiScaleDeformableAttention CUDA extension..."
-        cd "${MOTIP_ROOT}/models/ops"
-        python setup.py build install
-        cd "${MOTIP_ROOT}"
-        echo "[CUDA] CUDA operators built successfully!"
-    else
-        echo "[CUDA] No GPU available on login node."
-        echo "       CUDA ops will be built when you submit a SLURM job."
-    fi
-    echo ""
 fi
 
-# ================================================================== #
-# 2. Download Datasets                                                #
-# ================================================================== #
-if [ "$DO_DATA" = true ]; then
-    echo "========================================"
-    echo "2. Download Datasets"
-    echo "========================================"
-
-    init_conda
-    conda activate "$ENV_NAME" 2>/dev/null || true
-
-    mkdir -p "${DATA_ROOT}"
-
-    # Download DanceTrack
-    DANCETRACK_DIR="${DATA_ROOT}/DanceTrack"
-    if [ -d "${DANCETRACK_DIR}/train" ] && [ -d "${DANCETRACK_DIR}/val" ]; then
-        echo "[DATA] DanceTrack already exists at ${DANCETRACK_DIR}"
-    else
-        echo "[DATA] Downloading DanceTrack dataset..."
-        python "${MOTIP_ROOT}/scripts/download_dancetrack.py" \
-            --output-dir "${DANCETRACK_DIR}" \
-            --splits train val test
-    fi
-    echo ""
+if [ "$DO_REST" = false ]; then
+    echo "Environment setup complete (--env-only). Exiting."
+    exit 0
 fi
 
+# Ensure conda is initialized and env is active for remaining steps
+init_conda
+conda activate "${ENV_NAME}" 2>/dev/null || true
+
 # ================================================================== #
-# 3. Precompute SAM Masks                                             #
+# 2. Preprocess P-DESTRE Dataset                                      #
 # ================================================================== #
-if [ "$DO_MASKS" = true ]; then
-    echo "========================================"
-    echo "3. Precompute SAM Masks"
-    echo "========================================"
+echo "========================================================"
+echo "  Step 2: Preprocess P-DESTRE Dataset"
+echo "========================================================"
+echo ""
 
-    init_conda
-    conda activate "$ENV_NAME" 2>/dev/null || true
-
-    # Check if SAM checkpoint exists
-    if [ ! -f "${SAM_CKPT}" ]; then
-        echo "[WARN] SAM checkpoint not found at ${SAM_CKPT}"
-        echo "       Please download it from: https://dl.fbaipublicfiles.com/segment_anything/sam_vit_b_01ec64.pth"
-        echo "       Skipping SAM mask precomputation."
-    else
-        # Check if GPU is available (SAM needs GPU)
-        if python -c "import torch; assert torch.cuda.is_available()" 2>/dev/null; then
-            mkdir -p "${MASK_ROOT}"
-
-            # Precompute masks for DanceTrack train split
-            DANCETRACK_MASK_FLAG="${MASK_ROOT}/.dancetrack_train_done"
-            if [ -f "${DANCETRACK_MASK_FLAG}" ]; then
-                echo "[MASKS] DanceTrack train masks already computed."
-            else
-                echo "[MASKS] Precomputing SAM masks for DanceTrack train..."
-                python "${MOTIP_ROOT}/scripts/precompute_sam_masks.py" \
-                    --dataset DanceTrack \
-                    --split train \
-                    --data-root "${DATA_ROOT}" \
-                    --sam-checkpoint "${SAM_CKPT}" \
-                    --model-type "${SAM_MODEL_TYPE}" \
-                    --save-root "${MASK_ROOT}" \
-                    --device cuda
-                touch "${DANCETRACK_MASK_FLAG}"
-                echo "[MASKS] DanceTrack train masks done."
-            fi
-
-            # Precompute masks for DanceTrack val split
-            DANCETRACK_VAL_FLAG="${MASK_ROOT}/.dancetrack_val_done"
-            if [ -f "${DANCETRACK_VAL_FLAG}" ]; then
-                echo "[MASKS] DanceTrack val masks already computed."
-            else
-                echo "[MASKS] Precomputing SAM masks for DanceTrack val..."
-                python "${MOTIP_ROOT}/scripts/precompute_sam_masks.py" \
-                    --dataset DanceTrack \
-                    --split val \
-                    --data-root "${DATA_ROOT}" \
-                    --sam-checkpoint "${SAM_CKPT}" \
-                    --model-type "${SAM_MODEL_TYPE}" \
-                    --save-root "${MASK_ROOT}" \
-                    --device cuda
-                touch "${DANCETRACK_VAL_FLAG}"
-                echo "[MASKS] DanceTrack val masks done."
-            fi
-        else
-            echo "[MASKS] No GPU available. SAM mask precomputation requires a GPU."
-            echo "        Submit a SLURM job with GPU to precompute masks:"
-            echo ""
-            echo "        python scripts/precompute_sam_masks.py \\"
-            echo "            --dataset DanceTrack --split train \\"
-            echo "            --data-root ${DATA_ROOT} \\"
-            echo "            --save-root ${MASK_ROOT}"
-        fi
-    fi
+# Check that P-DESTRE was downloaded and extracted
+if [ ! -d "${PDESTRE_DIR}" ]; then
+    echo "ERROR: P-DESTRE directory not found at ${PDESTRE_DIR}"
     echo ""
+    echo "  You must download P-DESTRE manually before running this script."
+    echo "  See README.md Section 2 for the Google Drive download link."
+    echo ""
+    echo "  After downloading, upload and extract it:"
+    echo "    scp dataset.tar <user>@bwunicluster.scc.kit.edu:${DATA_ROOT}/"
+    echo "    cd ${DATA_ROOT} && tar -xf dataset.tar"
+    echo ""
+    exit 1
 fi
+
+# 2a. Rename annotation/ → annotations/ (raw tar uses singular)
+if [ -d "${PDESTRE_DIR}/annotation" ] && [ ! -d "${PDESTRE_DIR}/annotations" ]; then
+    mv "${PDESTRE_DIR}/annotation" "${PDESTRE_DIR}/annotations"
+    echo "[P-DESTRE] Renamed 'annotation/' → 'annotations/'"
+elif [ -d "${PDESTRE_DIR}/annotations" ]; then
+    echo "[P-DESTRE] 'annotations/' directory already exists."
+else
+    echo "WARNING: Neither 'annotation/' nor 'annotations/' found in ${PDESTRE_DIR}"
+fi
+
+# 2b. Remove known problematic sequences
+#     These have corrupted annotations or missing data.
+REMOVE_SEQUENCES=("22-10-2019-1-2" "13-11-2019-4-3")
+for seq in "${REMOVE_SEQUENCES[@]}"; do
+    removed=false
+    if [ -f "${PDESTRE_DIR}/annotations/${seq}.txt" ]; then
+        rm "${PDESTRE_DIR}/annotations/${seq}.txt"
+        removed=true
+    fi
+    if [ -f "${PDESTRE_DIR}/videos/${seq}.MP4" ]; then
+        rm "${PDESTRE_DIR}/videos/${seq}.MP4"
+        removed=true
+    fi
+    if [ "$removed" = true ]; then
+        echo "[P-DESTRE] Removed problematic sequence: ${seq}"
+    fi
+done
+
+# 2c. Extract frames from MP4 videos → images/{seq}/img1/*.jpg
+if [ -d "${PDESTRE_DIR}/videos" ] && [ "$(ls -A "${PDESTRE_DIR}/videos"/*.MP4 2>/dev/null)" ]; then
+    echo "[P-DESTRE] Extracting frames from videos (this may take a while)..."
+    cd "${PDESTRE_DIR}"
+    python preprocess_pdestre.py \
+        --ann_dir ./annotations \
+        --video_dir ./videos \
+        --converted_img_dir ./images
+    cd "${MOTIP_ROOT}"
+    echo "[P-DESTRE] Frame extraction complete."
+
+    # Delete videos directory to reclaim ~30GB of space
+    if [ -d "${PDESTRE_DIR}/videos" ]; then
+        echo "[P-DESTRE] Removing videos/ directory to free disk space..."
+        rm -rf "${PDESTRE_DIR}/videos"
+        echo "[P-DESTRE] Removed videos/ directory."
+    fi
+elif [ -d "${PDESTRE_DIR}/images" ] && [ "$(ls -A "${PDESTRE_DIR}/images" 2>/dev/null)" ]; then
+    echo "[P-DESTRE] Frames already extracted (images/ directory exists). Skipping."
+else
+    echo "WARNING: No videos found and no images directory exists."
+    echo "         P-DESTRE may not have been extracted correctly."
+fi
+
+# 2d. Verify splits exist
+if [ -d "${PDESTRE_DIR}/splits" ]; then
+    echo "[P-DESTRE] Splits directory found."
+else
+    echo "WARNING: No splits/ directory in ${PDESTRE_DIR}."
+    echo "         Pre-generated splits are in ${MOTIP_ROOT}/splits/"
+fi
+
+# Clean up the downloaded tar file if it's still in data/
+for tarfile in "${DATA_ROOT}/dataset.tar" "${DATA_ROOT}/dataset.tar.1"; do
+    if [ -f "$tarfile" ]; then
+        echo "[P-DESTRE] Removing ${tarfile} to free disk space..."
+        rm "$tarfile"
+    fi
+done
+
+echo ""
+
+# ================================================================== #
+# 3. Download Pretrained Weights                                      #
+# ================================================================== #
+echo "========================================================"
+echo "  Step 3: Download Pretrained Weights"
+echo "========================================================"
+echo ""
+
+mkdir -p "${PRETRAINS_DIR}"
+
+# R50 Deformable DETR (required for all R50 experiments)
+if [ -f "${PRETRAINS_DIR}/r50_deformable_detr_coco.pth" ]; then
+    echo "[WEIGHTS] r50_deformable_detr_coco.pth already exists."
+else
+    echo "[WEIGHTS] Downloading R50 Deformable DETR COCO pretrain (467 MB)..."
+    wget -q --show-progress \
+        https://github.com/fundamentalvision/Deformable-DETR/releases/download/v0.1/r50_deformable_detr-checkpoint.pth \
+        -O "${PRETRAINS_DIR}/r50_deformable_detr_coco.pth"
+    echo "[WEIGHTS] Done."
+fi
+
+# SAM ViT-B (needed for SAM mask experiments)
+if [ -f "${PRETRAINS_DIR}/sam_vit_b_01ec64.pth" ]; then
+    echo "[WEIGHTS] sam_vit_b_01ec64.pth already exists."
+else
+    echo "[WEIGHTS] Downloading SAM ViT-B (358 MB)..."
+    wget -q --show-progress \
+        https://dl.fbaipublicfiles.com/segment_anything/sam_vit_b_01ec64.pth \
+        -O "${PRETRAINS_DIR}/sam_vit_b_01ec64.pth"
+    echo "[WEIGHTS] Done."
+fi
+
+# RF-DETR Large (needed for RF-DETR experiments)
+if [ -f "${PRETRAINS_DIR}/rf-detr-large.pth" ]; then
+    echo "[WEIGHTS] rf-detr-large.pth already exists."
+else
+    echo "[WEIGHTS] Downloading RF-DETR Large (1.5 GB)..."
+    # RF-DETR weights are on HuggingFace
+    python -c "
+from huggingface_hub import hf_hub_download
+hf_hub_download(
+    repo_id='rafaelpadilla/RF-DETR',
+    filename='rf-detr-large-coco.pth',
+    local_dir='${PRETRAINS_DIR}',
+    local_dir_use_symlinks=False,
+)
+import os, shutil
+src = os.path.join('${PRETRAINS_DIR}', 'rf-detr-large-coco.pth')
+dst = os.path.join('${PRETRAINS_DIR}', 'rf-detr-large.pth')
+if os.path.exists(src) and not os.path.exists(dst):
+    shutil.move(src, dst)
+print('Downloaded rf-detr-large.pth')
+" 2>/dev/null || {
+        echo "[WEIGHTS] WARNING: Could not auto-download RF-DETR weights."
+        echo "          Please download manually from https://github.com/roboflow/RF-DETR"
+        echo "          and place as: ${PRETRAINS_DIR}/rf-detr-large.pth"
+    }
+fi
+
+echo ""
+
+# ================================================================== #
+# 4. Download DanceTrack Dataset                                      #
+# ================================================================== #
+echo "========================================================"
+echo "  Step 4: Download DanceTrack Dataset"
+echo "========================================================"
+echo ""
+
+DANCETRACK_DIR="${DATA_ROOT}/DanceTrack"
+if [ -d "${DANCETRACK_DIR}/train" ] && [ -d "${DANCETRACK_DIR}/val" ]; then
+    echo "[DATA] DanceTrack already exists at ${DANCETRACK_DIR}. Skipping."
+else
+    echo "[DATA] Downloading DanceTrack from HuggingFace..."
+    python "${MOTIP_ROOT}/scripts/download_dancetrack.py" \
+        --output-dir "${DANCETRACK_DIR}" \
+        --splits train val test
+    echo "[DATA] DanceTrack download complete."
+fi
+
+echo ""
+
+# ================================================================== #
+# 5. Clone RF-DETR & Apply Compatibility Fixes                       #
+# ================================================================== #
+echo "========================================================"
+echo "  Step 5: Clone RF-DETR Repository"
+echo "========================================================"
+echo ""
+
+RFDETR_DIR="${MOTIP_ROOT}/rf-detr"
+if [ -d "${RFDETR_DIR}" ]; then
+    echo "[RF-DETR] Repository already exists at ${RFDETR_DIR}. Skipping clone."
+else
+    echo "[RF-DETR] Cloning RF-DETR repository..."
+    git clone https://github.com/roboflow/rf-detr.git "${RFDETR_DIR}"
+    echo "[RF-DETR] Cloned successfully."
+fi
+
+# Apply transformers v5.x compatibility fix to DINOv2 backbone
+DINOV2_FIXED="${MOTIP_ROOT}/models/rfdetr/dinov2_with_windowed_attn.py"
+DINOV2_TARGET="${RFDETR_DIR}/rfdetr/models/backbone/dinov2_with_windowed_attn.py"
+
+if [ -f "${DINOV2_FIXED}" ] && [ -f "${DINOV2_TARGET}" ]; then
+    cp "${DINOV2_FIXED}" "${DINOV2_TARGET}"
+    echo "[RF-DETR] Applied transformers v5.x compatibility fix."
+elif [ -f "${DINOV2_TARGET}" ]; then
+    echo "[RF-DETR] DINOv2 backbone file exists (fix may already be applied)."
+else
+    echo "[RF-DETR] WARNING: Could not find DINOv2 files to patch."
+fi
+
+echo ""
+
+# ================================================================== #
+# 6. Build CUDA Extension                                             #
+# ================================================================== #
+echo "========================================================"
+echo "  Step 6: Build CUDA Extension"
+echo "========================================================"
+echo ""
+
+if python -c "import torch; assert torch.cuda.is_available()" 2>/dev/null; then
+    echo "[CUDA] GPU detected. Building MultiScaleDeformableAttention..."
+
+    # Try to load CUDA module if on bwUniCluster
+    module load devel/cuda/11.8 2>/dev/null || true
+    export CUDA_HOME="${CUDA_HOME:-/opt/bwhpc/common/devel/cuda/11.8}"
+
+    cd "${MOTIP_ROOT}/models/ops"
+    python setup.py build install
+    cd "${MOTIP_ROOT}"
+    echo "[CUDA] CUDA extension built successfully!"
+else
+    echo "[CUDA] No GPU available (login node)."
+    echo "       The CUDA extension will be built automatically"
+    echo "       when you submit a training job to a GPU node."
+    echo ""
+    echo "       To build manually, start an interactive GPU session:"
+    echo "         srun --partition=gpu_h100 --gres=gpu:1 --time=00:30:00 --mem=8G --pty bash"
+    echo "         conda activate ${ENV_NAME}"
+    echo "         module load devel/cuda/11.8"
+    echo "         export CUDA_HOME=/opt/bwhpc/common/devel/cuda/11.8"
+    echo "         cd models/ops && python setup.py build install && cd ../.."
+fi
+
+echo ""
 
 # ================================================================== #
 # Done                                                                #
 # ================================================================== #
-echo "========================================"
-echo "Setup Complete!"
-echo "========================================"
+echo "========================================================"
+echo "  Setup Complete!"
+echo "========================================================"
 echo ""
 echo "Summary:"
-echo "  Conda environment: ${ENV_NAME}"
-echo "  Data directory:    ${DATA_ROOT}"
-echo "  SAM masks:         ${MASK_ROOT}"
+echo "  Conda environment:  ${ENV_NAME}"
+echo "  P-DESTRE dataset:   ${PDESTRE_DIR}/"
+echo "  DanceTrack dataset: ${DANCETRACK_DIR}/"
+echo "  Pretrained weights: ${PRETRAINS_DIR}/"
 echo ""
-echo "To activate the environment:"
-echo "    conda activate ${ENV_NAME}"
+
+# Verification checklist
+echo "Checklist:"
+[ -d "${PDESTRE_DIR}/images" ] && echo "  ✓ P-DESTRE frames extracted" || echo "  ✗ P-DESTRE frames missing"
+[ -d "${PDESTRE_DIR}/annotations" ] && echo "  ✓ P-DESTRE annotations present" || echo "  ✗ P-DESTRE annotations missing"
+[ -d "${DANCETRACK_DIR}/train" ] && echo "  ✓ DanceTrack downloaded" || echo "  ✗ DanceTrack missing"
+[ -f "${PRETRAINS_DIR}/r50_deformable_detr_coco.pth" ] && echo "  ✓ R50 pretrain downloaded" || echo "  ✗ R50 pretrain missing"
+[ -f "${PRETRAINS_DIR}/rf-detr-large.pth" ] && echo "  ✓ RF-DETR pretrain downloaded" || echo "  ✗ RF-DETR pretrain missing"
+[ -f "${PRETRAINS_DIR}/sam_vit_b_01ec64.pth" ] && echo "  ✓ SAM pretrain downloaded" || echo "  ✗ SAM pretrain missing"
+[ -d "${RFDETR_DIR}" ] && echo "  ✓ RF-DETR repo cloned" || echo "  ✗ RF-DETR repo missing"
+pip show MultiScaleDeformableAttention &>/dev/null && echo "  ✓ CUDA extension installed" || echo "  ✗ CUDA extension not yet built (needs GPU node)"
 echo ""
-echo "To run training, submit a SLURM job:"
-echo "    sbatch setup_and_smoke_fresh.sh"
-echo ""
-echo "To precompute SAM masks on a GPU node (if not done):"
-echo "    python scripts/precompute_sam_masks.py --dataset DanceTrack --split train"
+echo "Next steps:"
+echo "  1. conda activate ${ENV_NAME}"
+echo "  2. sbatch scripts/smoke_test.sh        # Quick validation"
+echo "  3. sbatch train_r50.sh                 # Start training"
 echo ""

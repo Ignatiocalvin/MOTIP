@@ -42,10 +42,24 @@ from transformers.utils import (
     replace_return_docstrings,
     torch_int,
 )
-from transformers.backbone_utils import BackboneMixin
+
+# Transformers 5.x compatibility: backbone_utils moved to transformers.utils
+try:
+    from transformers.backbone_utils import BackboneMixin, BackboneConfigMixin
+except ImportError:
+    try:
+        # Transformers 5.x: backbone_utils moved to utils subpackage
+        from transformers.utils.backbone_utils import BackboneMixin, BackboneConfigMixin
+    except ImportError:
+        # Fallback: create minimal stubs if not available
+        class BackboneMixin:
+            """Minimal stub for BackboneMixin"""
+            pass
+        class BackboneConfigMixin:
+            """Minimal stub for BackboneConfigMixin"""
+            pass
 
 from transformers.configuration_utils import PretrainedConfig
-from transformers.backbone_utils import BackboneConfigMixin
 
 # get_aligned_output_features_output_indices was removed in transformers 5.x — inline implementation:
 def get_aligned_output_features_output_indices(out_features, out_indices, stage_names):
@@ -1036,7 +1050,11 @@ class WindowedDinov2WithRegistersForImageClassification(WindowedDinov2WithRegist
 class WindowedDinov2WithRegistersBackbone(WindowedDinov2WithRegistersPreTrainedModel, BackboneMixin):
     def __init__(self, config: WindowedDinov2WithRegistersConfig):
         super().__init__(config)
-        self._init_transformers_backbone()
+        # Transformers 5.x compat: _init_transformers_backbone now requires config arg
+        try:
+            self._init_transformers_backbone(config)
+        except TypeError:
+            self._init_transformers_backbone()
         self.num_features = [config.hidden_size for _ in range(config.num_hidden_layers + 1)]
         self.embeddings = WindowedDinov2WithRegistersEmbeddings(config)
         self.encoder = WindowedDinov2WithRegistersEncoder(config)

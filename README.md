@@ -1,442 +1,548 @@
-# MOTIP with Multi-Concept Prediction and Concept Bottleneck Integration
+# MOTIP — Complete Reproduction Guide
 
-This document outlines the modifications made to the original MOTIP repository to add **multi-concept prediction** (Concept Bottleneck Model integration) and **concept-based identity prediction** for multi-object tracking.
+> **Multi-Object Tracking with Identity Prediction (MOTIP)** on the P-DESTRE dataset, with concept bottleneck extensions and RF-DETR backbone support.
 
-## Overview
-
-The original MOTIP (Multi-Object Tracking with Identity Prediction) has been extended to include:
-1. **Multi-Concept Prediction** - Predicts multiple person attributes simultaneously (gender, hairstyle, clothing, accessories)
-2. **Concept Bottleneck Integration** - Uses predicted concepts to enhance identity prediction
-3. **P-DESTRE Dataset Support** - Full integration with the P-DESTRE dataset and its annotation format
-4. **RF-DETR Integration** - Support for RF-DETR backbone (DINOv2-based) as an alternative to Deformable DETR
-
-### Supported Concepts (P-DESTRE Dataset)
-| Attributes | Classes | Unknown Label |
-|---------|---------|---------------|
-| Gender | 3 (Male, Female, Unknown) | 2 | # OK
-| Hairstyle | 6 (Bald, Short, Medium, Long, Horse Tail, Unknown) | 5 | # No
-| Head Accessories | 5 (Hat, Scarf, Neckless, Cannot see, Unknown) | 4 | # No
-| Upper Body | 13 (T-Shirt, Blouse, Sweater, Coat, ..., Unknown) | 12 | # Reasonable
-| Lower Body | 10 (Jeans, Leggins, Pants, Shorts, ..., Unknown) | 9 |  # Reasonable
-| Feet | 7 (Sport Shoe, Classic Shoe, High Heels, ..., Unknown) | 6 | # No
-| Accessories | 8 (Bag, Backpack, Rolling Bag, Umbrella, ..., Unknown) | 7 | # Unsure
-
-## Key Modifications
-
-### 1. Core Model Architecture Changes
-
-#### A. DeformableDETR Model (`models/deformable_detr/deformable_detr.py`)
-
-**Multi-Concept Prediction Architecture:**
-- **Lines 42-75**: Added multi-concept support with `concept_classes` parameter
-  ```python
-  # concept_classes: list of class counts per concept [3, 6, 5, 13, 10, 7, 8]
-  self.concept_embeds = nn.ModuleList()  # Separate MLP head for each concept type
-  for n_classes in concept_classes:
-      self.concept_embeds.append(MLP(hidden_dim, hidden_dim, n_classes, 3))
-  ```
-
-- **Lines 125-133**: Concept embed bias initialization with per-concept handling
-
-- **Lines 136-160**: Concept head cloning for auxiliary losses (`with_box_refine` support)
-
-- **Lines 215-248**: Forward pass multi-concept prediction loop
-  ```python
-  for concept_idx, concept_embed in enumerate(self.concept_embeds):
-      outputs_concepts[concept_idx].append(concept_embed[lvl](hs[lvl]))
-  ```
-
-- **Lines 251-262**: Output dictionary with `pred_concepts` as list of per-concept predictions
-
-- **Lines 280-303**: `_set_aux_loss_multi_concept` method for auxiliary loss handling
-
-- **Lines 408-475**: `loss_concepts` method with per-concept cross-entropy and unknown label filtering
-  ```python
-  def loss_concepts(self, outputs, targets, indices, num_boxes, **kwargs):
-      """Multi-concept classification loss with per-concept unknown filtering."""
-      for concept_idx, (concept_name, n_classes, unknown_label) in enumerate(self.concept_classes):
-          # Filter out Unknown labels during training
-          valid_mask = (target_concepts[:, concept_idx] != unknown_label)
-          loss = F.cross_entropy(src_logits_valid, target_valid)
-  ```
-
-- **Lines 535-590**: `debug_concept_targets` with multi-concept debugging
-
-- **Lines 592-680**: `log_concept_predictions` with per-concept accuracy logging
-
-- **Lines 860-940**: `build()` function with multi-concept support and per-concept loss weights
-
-#### B. Loss Function Enhancements
-- **Multi-concept loss**: Cross-entropy loss per concept type
-- **Unknown label handling**: Per-concept unknown label filtering (configurable via `concept_classes`)
-- **Per-concept weight_dict**: Separate loss weights like `loss_gender`, `loss_upper_body`
-- **Multi-layer supervision**: Concept losses computed for all decoder layers
-
-### 2. Concept-Based Identity Prediction (Concept Bottleneck Integration)
-
-#### A. IDDecoder Model (`models/motip/id_decoder.py`)
-
-**Key additions for concept bottleneck integration:**
-- **Lines 24-27**: New constructor parameters for concept integration
-  ```python
-  concept_classes: Optional[List[tuple]] = None,  # [(name, n_classes, unknown_label), ...]
-  concept_dim: int = 0,  # Dimension of concept embeddings (0 = disabled)
-  ```
-
-- **Lines 45-56**: Concept embedding layer setup
-  ```python
-  # Total embedding dimension: features + concepts + id
-  self.total_embed_dim = self.feature_dim + self.concept_dim + self.id_dim
-  
-  # Concept embedding layers: convert one-hot concept labels to embeddings
-  total_concept_classes = sum(n_classes for _, n_classes, _ in self.concept_classes)
-  self.concept_to_embed = nn.Linear(total_concept_classes, self.concept_dim, bias=False)
-  ```
-
-- **Lines 202-225**: Forward pass concept embedding integration
-  ```python
-  # Concatenate: [features, concept_embeds, id_embeds]
-  trajectory_embeds = torch.cat([trajectory_features, trajectory_concept_embeds, trajectory_id_embeds], dim=-1)
-  ```
-
-- **Lines 360-390**: `concept_labels_to_embed` method for one-hot encoding and projection
-
-#### B. MOTIP Builder (`models/motip/__init__.py`)
-- **Lines 172-190**: Reads `CONCEPT_DIM` from config and passes to IDDecoder
-
-### 3. Data Pipeline Modifications
-
-#### A. Data Transforms (`data/transforms.py`)
-
-**Concept field preservation in augmentations:**
-- **Lines 265-270**: Added concepts to field filtering in `MultiRandomCrop`
-  ```python
-  _need_to_select_fields = ["bbox", "category", "id", "visibility"]
-  if "concepts" in _annotation:
-      _need_to_select_fields.append("concepts")
-  ```
-
-#### B. P-DESTRE Dataset (`data/pdestre.py`) - **NEW FILE**
-
-Complete P-DESTRE dataset implementation with:
-- **Lines 1-50**: Dataset class inheriting from DanceTrack
-- **Lines 50-100**: Split file loading (`Train_0.txt`, `Test_0.txt`, `val_0.txt`)
-- **Lines 100-175**: Sequence info construction with image path validation
-- **Lines 175-230**: Custom image path methods for P-DESTRE folder structure
-- **Lines 230-255**: `_init_annotations` with 7-concept 2D tensor support
-  ```python
-  "concepts": torch.empty(size=(0, 7), dtype=torch.int64),  # 2D tensor for 7 concepts
-  ```
-- **Lines 255-331**: Annotation loading from P-DESTRE format (25 columns)
-  ```python
-  # Parse all 7 concepts from P-DESTRE columns
-  gender = int(items[10])
-  hairstyle = int(items[16])
-  head_accessories = int(items[20])
-  upper_body = int(items[21])
-  lower_body = int(items[22])
-  feet = int(items[23])
-  accessories = int(items[24])
-  ```
-
-#### C. Joint Dataset (`data/joint_dataset.py`)
-- **Lines 17-26**: Added P-DESTRE to `dataset_classes` registry
-  ```python
-  dataset_classes = {
-      "DanceTrack": DanceTrack,
-      "P-DESTRE": PDESTRE,  # Must match config string exactly
-      ...
-  }
-  ```
-- **Lines 70-95**: Path correction hotfix for P-DESTRE image paths
-
-#### D. Data Utilities (`data/util.py`)
-- **Lines 36-47**: Updated `is_legal` to validate concepts tensor
-- **Lines 65-100**: Updated `append_annotation` for multi-concept support
-  ```python
-  if isinstance(concepts, (list, tuple)):
-      concepts_tensor = torch.tensor([concepts], dtype=torch.int64)  # 2D shape
-  ```
-
-#### E. Training Pipeline (`train.py`)
-- **Lines 6-28**: RF-DETR path setup for optional backbone integration
-- **Concept target handling**: Concepts passed through to DETR targets
-
-### 4. Runtime Tracker with Concept Support
-
-#### A. Runtime Tracker (`models/runtime_tracker.py`)
-
-**Key modifications for inference with concepts:**
-- **Lines 85-90**: Added `trajectory_concepts` tensor field
-  ```python
-  self.trajectory_concepts = torch.zeros(
-      (0, 0, 0), dtype=torch.int64, device=distributed_device(),
-  )
-  ```
-
-- **Lines 252-253**: Passing concepts to seq_info for ID decoder
-- **Lines 364-420**: **Fixed dimension mismatch bug** in `_update_trajectory_infos`
-  ```python
-  # Handle dimension mismatch when trajectory count changes
-  if self.trajectory_concepts.shape[1] != _N:
-      if _N > _N_concepts:
-          _pad = torch.zeros((_T_concepts, _N - _N_concepts, num_concepts), ...)
-          self.trajectory_concepts = torch.cat([self.trajectory_concepts, _pad], dim=1)
-  ```
-- **Lines 430-435**: Filtering concepts when filtering inactive tracks
-
-### 5. Configuration System
-
-#### A. Available Configurations
-
-| Config File | Description |
-|-------------|-------------|
-| `r50_deformable_detr_motip_pdestre_concepts_for_id.yaml` | **Concept-based ID prediction** - uses concepts to enhance ID matching |
-| `r50_deformable_detr_motip_pdestre_fast.yaml` | Fast training with all 7 concepts, larger intervals |
-| `r50_deformable_detr_motip_pdestre_standard.yaml` | Standard training config |
-| `rfdetr_medium_motip_pdestre.yaml` | RF-DETR backbone with DINOv2 |
-
-#### B. Key Configuration Parameters
-
-```yaml
-MOTIP:
-  N_CONCEPTS: 7  # Number of concept types (not total classes)
-  CONCEPT_DIM: 64  # NEW: Enables concept embeddings in IDDecoder (0 = disabled)
-  CONCEPT_CLASSES:  # Multi-concept definition: [name, num_classes, unknown_label]
-    - ["gender", 3, 2]
-    - ["hairstyle", 6, 5]
-    - ["head_accessories", 5, 4]
-    - ["upper_body", 13, 12]
-    - ["lower_body", 10, 9]
-    - ["feet", 7, 6]
-    - ["accessories", 8, 7]
-  DETR_LOSSES: [labels, boxes, cardinality, concepts]
-  CONCEPT_LOSS_COEF: 0.5
-
-# Auto-resume from checkpoint (NEW)
-USE_PREVIOUS_CHECKPOINT: True
-
-# Intra-epoch checkpointing (for long epochs)
-SAVE_CHECKPOINT_EVERY_N_STEPS: 5000
-RESUME_FROM_STEP: 0
-```
-
-#### C. RF-DETR Configuration (`rfdetr_medium_motip_pdestre.yaml`)
-
-```yaml
-DETR_FRAMEWORK: rf_detr  # Switch from deformable_detr
-
-RFDETR:
-  ENCODER: dinov2_windowed_small  # DINOv2 backbone
-  RESOLUTION: 588
-  HIDDEN_DIM: 256
-  DEC_LAYERS: 4
-  PATCH_SIZE: 14
-  TWO_STAGE: True
-  LOAD_DINOV2_WEIGHTS: True  # Auto-download DINOv2 weights
-```
-
-### 6. Training Scripts
-
-| Script | Description |
-|--------|-------------|
-| `train_fast.sh` | Fast training with concept-for-ID config |
-| `train_standard_motip.sh` | Standard MOTIP training |
-| `train_rfdetr.sh` | RF-DETR backbone training |
-| `eval_checkpoint0.sh` | Evaluate checkpoint_0 |
-| `evaluate_checkpoint.py` | General checkpoint evaluation script |
-
-## How to Run Training
-
-### 1. Environment Setup
-```bash
-cd /path/to/MOTIP
-conda activate MOTIP
-
-# Verify RF-DETR is available (optional, for RF-DETR training)
-ls rf-detr/  # Should contain rfdetr package
-```
-
-### 2. Data Structure
-```
-data/
-└── P-DESTRE/
-    ├── images/
-    │   └── <sequence_name>/
-    │       └── img1/
-    │           └── 000001.jpg, ...
-    ├── annotations/
-    │   └── <sequence_name>.txt  # 25-column P-DESTRE format
-    └── splits/
-        ├── Train_0.txt, Train_1.txt, ...
-        ├── Test_0.txt, Test_1.txt, ...
-        └── val_0.txt, val_1.txt, ...
-```
-
-### 3. Training Commands
-
-**Standard MOTIP with Concepts:**
-```bash
-./train_fast.sh
-# or
-accelerate launch --num_processes=1 train.py \
-    --data-root ./data/ \
-    --config-path ./configs/r50_deformable_detr_motip_pdestre_concepts_for_id.yaml \
-    --exp-name my_experiment
-```
-
-**RF-DETR Backbone:**
-```bash
-./train_rfdetr.sh
-```
-
-### 4. Checkpoint Evaluation
-```bash
-# Evaluate specific checkpoint
-python evaluate_checkpoint.py \
-    --checkpoint outputs/<exp_name>/train/checkpoint_0.pth \
-    --dataset P-DESTRE \
-    --split Test_0
-
-# Quick evaluation of checkpoint_0
-./eval_checkpoint0.sh
-```
-
-### 5. Resume Training
-Training automatically resumes from the last checkpoint when:
-- `USE_PREVIOUS_CHECKPOINT: True` is set in config
-- Checkpoint files exist in the output directory
-
-For mid-epoch resume:
-```yaml
-RESUME_FROM_STEP: 5000  # Resume from step 5000
-```
-
-## Output Structure
-```
-outputs/
-└── <exp_name>/
-    ├── train/
-    │   ├── log.txt
-    │   ├── checkpoint_0.pth, checkpoint_1.pth, ...
-    │   ├── step_checkpoint_5000.pth  # Intra-epoch checkpoint
-    │   └── eval_during_train/
-    └── multi_last_checkpoints/
-```
-
-## File Structure Changes
-
-```
-MOTIP/
-├── train.py                          # ✓ RF-DETR path setup, concept handling
-├── train_fast.sh                     # ✓ Fast training script
-├── train_rfdetr.sh                   # ✓ RF-DETR training script  
-├── evaluate_checkpoint.py            # ✓ NEW: Standalone evaluation
-├── eval_checkpoint0.sh               # ✓ NEW: Quick checkpoint_0 eval
-├── models/
-│   ├── deformable_detr/
-│   │   └── deformable_detr.py        # ✓ Multi-concept prediction heads
-│   ├── motip/
-│   │   ├── __init__.py               # ✓ Concept dim passing to IDDecoder
-│   │   └── id_decoder.py             # ✓ Concept bottleneck integration
-│   └── runtime_tracker.py            # ✓ Concept tracking + dimension fix
-├── data/
-│   ├── pdestre.py                    # ✓ NEW: P-DESTRE dataset
-│   ├── joint_dataset.py              # ✓ P-DESTRE registration + path fix
-│   ├── transforms.py                 # ✓ Concept field preservation
-│   └── util.py                       # ✓ Multi-concept append/validation
-├── configs/
-│   ├── r50_deformable_detr_motip_pdestre_concepts_for_id.yaml  # ✓ Concept-for-ID
-│   ├── r50_deformable_detr_motip_pdestre_fast.yaml             # ✓ Fast training
-│   ├── r50_deformable_detr_motip_pdestre_standard.yaml         # ✓ Standard
-│   └── rfdetr_medium_motip_pdestre.yaml                        # ✓ RF-DETR config
-└── rf-detr/                          # ✓ RF-DETR submodule (optional)
-```
-
-## Technical Implementation Details
-
-### Multi-Concept Prediction Architecture
-```python
-# DeformableDETR with multi-concept heads
-self.concept_embeds = nn.ModuleList()
-for n_classes in concept_classes:  # [3, 6, 5, 13, 10, 7, 8]
-    self.concept_embeds.append(MLP(hidden_dim, hidden_dim, n_classes, 3))
-
-# Output: list of predictions per concept type
-out['pred_concepts'] = [concept_preds[i][-1] for i in range(num_concepts)]
-```
-
-### Concept Bottleneck for ID Prediction
-```python
-# IDDecoder with concept integration
-# 1. Convert concept labels to one-hot
-# 2. Project to concept embedding space
-# 3. Concatenate with visual features and ID embeddings
-trajectory_embeds = torch.cat([
-    trajectory_features,      # Visual features (256-dim)
-    trajectory_concept_embeds,  # Concept embeddings (concept_dim)
-    trajectory_id_embeds        # ID embeddings (id_dim)
-], dim=-1)
-# Total: feature_dim + concept_dim + id_dim
-```
-
-### P-DESTRE Annotation Format
-```
-# 25-column format:
-# Frame,ID,x,y,h,w,conf,world_x,world_y,world_z,Gender,...,Hairstyle,...,Accessories
-# Column indices: gender=10, hairstyle=16, head_accessories=20, upper_body=21, 
-#                 lower_body=22, feet=23, accessories=24
-```
-
-### Data Structure
-```python
-# Enhanced annotation format with multi-concept support
-annotation = {
-    "bbox": tensor,      # Bounding boxes (N, 4)
-    "category": tensor,  # Category labels (N,)
-    "id": tensor,        # Track IDs (N,)
-    "visibility": tensor,  # Visibility scores (N,)
-    "concepts": tensor,  # NEW: Multi-concept labels (N, 7)
-    # concepts[:, 0] = gender, concepts[:, 1] = hairstyle, etc.
-}
-```
-
-## Bug Fixes
-
-### 1. Runtime Tracker Dimension Mismatch (Fixed)
-**Issue**: `RuntimeError: Sizes of tensors must match except in dimension 0. Expected size 52 but got size 50`
-
-**Cause**: `trajectory_concepts` tensor dimension mismatch when trajectory count changes between frames.
-
-**Fix** ([runtime_tracker.py](models/runtime_tracker.py#L402-L420)):
-```python
-if self.trajectory_concepts.shape[1] != _N:
-    if _N > _N_concepts:
-        _pad = torch.zeros((_T_concepts, _N - _N_concepts, num_concepts), ...)
-        self.trajectory_concepts = torch.cat([self.trajectory_concepts, _pad], dim=1)
-```
-
-### 2. P-DESTRE Dataset Registration
-**Issue**: `KeyError: 'PDESTRE'` when loading dataset
-
-**Fix**: Use `"P-DESTRE"` (with hyphen) in config to match `dataset_classes` registry.
-
-## Compatibility
-
-- ✅ Backward compatible with original MOTIP (set `N_CONCEPTS: 0`)
-- ✅ Works with existing Deformable DETR pretrained models
-- ✅ Optional RF-DETR backbone support
-- ✅ Supports all original training configurations
-- ✅ Auto-resume from checkpoints
-
-## Future Extensions
-
-The multi-concept framework can be extended to:
-- Additional person attributes (age, pose, etc.)
-- Other datasets with soft/rich annotations
-- Concept-guided re-identification
-- Temporal concept consistency constraints
+This guide walks through every step needed to reproduce the experiments: downloading the dataset, setting up the environment, running training, and evaluating results.
 
 ---
 
-*This implementation demonstrates Concept Bottleneck Model integration for multi-object tracking, combining visual features with semantic concept predictions to enhance identity association.*
+## Table of Contents
+
+1. [Prerequisites](#1-prerequisites)
+2. [Quick Start (3 Steps)](#2-quick-start-3-steps)
+3. [What the Setup Script Does](#3-what-the-setup-script-does)
+4. [Repository Structure](#4-repository-structure)
+5. [Configuration Overview](#5-configuration-overview)
+6. [Training](#6-training)
+7. [Evaluation](#7-evaluation)
+8. [Visualization](#8-visualization)
+9. [Troubleshooting](#9-troubleshooting)
+
+---
+
+## 1. Prerequisites
+
+- Access to **bwUniCluster** (or any SLURM cluster with NVIDIA H100 / A100 GPUs)
+- `miniconda3` or `anaconda3` installed in your home directory
+- SSH access for file transfers
+- ~200 GB free disk space (dataset + weights + outputs)
+
+---
+
+## 2. Quick Start (3 Steps)
+
+### Step 1: Download P-DESTRE manually
+
+The P-DESTRE dataset (~30 GB) must be downloaded manually from Google Drive because the original download link was invalidated by the dataset owners.
+
+Open this link in your browser and download the archive:
+
+> **https://drive.google.com/file/d/1yan3gA59xzMdKIPsf6UAfgwTAJQLQUeg/view?usp=drive_link**
+
+### Step 2: Upload and extract on the cluster
+
+From your local machine, upload the downloaded file:
+
+```bash
+scp dataset.tar <user>@bwunicluster.scc.kit.edu:/pfs/work9/workspace/scratch/ma_ighidaya-thesis_ignatio/MOTIP/data/
+```
+
+Then on the cluster, extract it:
+
+```bash
+cd /pfs/work9/workspace/scratch/ma_ighidaya-thesis_ignatio/MOTIP/data
+tar -xf dataset.tar
+```
+
+This creates `data/P-DESTRE/` with `annotation/` and `videos/` subdirectories.
+
+### Step 3: Run the setup script
+
+The setup script handles **everything else** automatically:
+
+```bash
+cd /pfs/work9/workspace/scratch/ma_ighidaya-thesis_ignatio/MOTIP
+./scripts/download_and_preprocess.sh
+```
+
+This will:
+1. **Create conda environment** (`MOTIP`) and install all Python dependencies
+2. **Preprocess P-DESTRE** — rename folders, remove bad sequences, extract video frames to JPEG
+3. **Download pretrained weights** — R50 Deformable DETR, RF-DETR Large, SAM ViT-B
+4. **Download DanceTrack** dataset from HuggingFace
+5. **Clone RF-DETR** repository and apply compatibility fixes
+6. **Build CUDA extension** (if run on a GPU node; otherwise deferred to first training job)
+
+The script is idempotent — it skips any step that was already completed, so it's safe to re-run.
+
+> **Note on CUDA extension**: If you run the script on a login node (no GPU), the CUDA extension cannot be built there. It will be built automatically when you submit your first training job. Alternatively, build it manually on a GPU node:
+> ```bash
+> srun --partition=gpu_h100 --gres=gpu:1 --time=00:30:00 --mem=8G --pty bash
+> conda activate MOTIP
+> module load devel/cuda/11.8
+> export CUDA_HOME=/opt/bwhpc/common/devel/cuda/11.8
+> cd models/ops && python setup.py build install && cd ../..
+> exit
+> ```
+
+### Verify with a smoke test
+
+After the script finishes, submit a quick 2-epoch training job to validate the full pipeline:
+
+```bash
+sbatch scripts/smoke_test.sh
+```
+
+Check the result:
+
+```bash
+squeue -u $USER                # Check job status
+cat logs/smoke_test_*.out      # View output when done
+```
+
+If it completes without errors and creates `outputs/smoke_test/`, everything is working.
+
+---
+
+## 3. What the Setup Script Does
+
+For reference, here is what `scripts/download_and_preprocess.sh` does in detail:
+
+### P-DESTRE preprocessing
+
+The raw P-DESTRE download contains MP4 videos and annotations. The script converts it into the format MOTIP expects:
+
+1. **Renames** `annotation/` → `annotations/` (the raw tar uses the singular form)
+2. **Removes** known problematic sequences (`22-10-2019-1-2`, `13-11-2019-4-3`) that have corrupted data
+3. **Extracts frames** from each MP4 video into `images/{sequence}/img1/000001.jpg, 000002.jpg, ...` using `data/P-DESTRE/preprocess_pdestre.py`
+4. **Deletes** the MP4 videos after extraction to reclaim ~30 GB of space
+
+After preprocessing, the P-DESTRE directory looks like:
+
+```
+data/P-DESTRE/
+├── images/                          # Extracted JPEG frames
+│   ├── 13-11-2019-4-2/
+│   │   └── img1/
+│   │       ├── 000001.jpg           (6-digit zero-padded, 1-indexed)
+│   │       ├── 000002.jpg
+│   │       └── ...
+│   └── ...                          (~70 sequences)
+├── annotations/                     # Per-sequence annotation files
+│   ├── 13-11-2019-4-2.txt
+│   └── ...
+└── splits/                          # 10-fold cross-validation
+    ├── Train_0.txt ... Train_9.txt
+    ├── val_0.txt   ... val_9.txt
+    └── Test_0.txt  ... Test_9.txt
+```
+
+**Image resolution**: 3840 × 2160 @ 30 fps
+
+**Annotation format** (each line):
+```
+frame_id, track_id, x, y, w, h, -1, -1, -1, -1, gender, hairstyle, head_acc, upper_body, lower_body, feet, accessories, ...
+```
+
+### Pretrained weights
+
+Downloaded to `pretrains/`:
+
+| File | Size | Used by |
+|------|------|---------|
+| `r50_deformable_detr_coco.pth` | 467 MB | R50 Deformable DETR experiments |
+| `rf-detr-large.pth` | 1.5 GB | RF-DETR DINOv2-Large experiments |
+| `sam_vit_b_01ec64.pth` | 358 MB | SAM mask experiments |
+
+### DanceTrack dataset
+
+Downloaded from HuggingFace to `data/DanceTrack/` with train/val/test splits. Used for SAM mask experiments.
+
+### Script options
+
+```bash
+./scripts/download_and_preprocess.sh             # Full setup (default)
+./scripts/download_and_preprocess.sh --env-only  # Only create env + install pip packages
+./scripts/download_and_preprocess.sh --skip-env  # Skip env creation, do everything else
+./scripts/download_and_preprocess.sh --help      # Show usage
+```
+
+You can also override the conda environment name:
+
+```bash
+ENV_NAME=my_env ./scripts/download_and_preprocess.sh
+```
+
+---
+
+## 4. Repository Structure
+
+```
+MOTIP/
+├── train.py                    # Main training script (uses Accelerate)
+├── train_r50.sh                # SLURM script: R50 Deformable DETR training
+├── train_rf-detr.sh            # SLURM script: RF-DETR training
+├── requirements.txt            # Python dependencies
+├── runtime_option.py           # Command-line argument definitions
+│
+├── configs/                    # YAML experiment configurations
+│   ├── r50_deformable_detr_motip_pdestre_*.yaml
+│   ├── rfdetr_large_motip_pdestre_*.yaml
+│   └── smoke_test*.yaml
+│
+├── data/                       # Dataset loaders
+│   ├── P-DESTRE/               # Dataset files (images + annotations)
+│   ├── pdestre.py              # P-DESTRE dataset class
+│   ├── dancetrack.py           # Base dataset class
+│   └── joint_dataset.py        # Multi-dataset wrapper
+│
+├── models/                     # Model architectures
+│   ├── motip/                  # MOTIP model (tracker + ID decoder + concepts)
+│   ├── deformable_detr/        # Deformable DETR detector
+│   ├── rfdetr/                 # RF-DETR detector wrapper
+│   └── ops/                    # CUDA extensions (MultiScaleDeformableAttention)
+│
+├── splits/                     # 10-fold cross-validation split files
+├── pretrains/                  # Pretrained backbone weights
+├── rf-detr/                    # RF-DETR submodule (cloned separately)
+├── outputs/                    # Training outputs (checkpoints, logs, metrics)
+├── logs/                       # SLURM job output files
+│
+├── evaluation/                 # Evaluation & visualization tools
+│   ├── submit_and_evaluate.py  # Core inference + metric computation
+│   ├── evaluate_fold.sh        # SLURM evaluation submission
+│   ├── extract_metrics.py      # Parse evaluation logs → JSON
+│   ├── visualize_results.py    # Generate metric charts
+│   └── generate_all_visualizations.sh
+│
+├── scripts/                    # Utility scripts
+│   ├── smoke_test.sh           # Quick validation (R50)
+│   ├── smoke_test_rfdetr.sh    # Quick validation (RF-DETR)
+│   └── ...
+│
+└── TrackEval/                  # External tracking evaluation library
+```
+
+---
+
+## 5. Configuration Overview
+
+All experiments are defined by YAML config files in `configs/`. Configs use inheritance — a child config specifies `SUPER_CONFIG_PATH` to inherit from a base.
+
+### Concept attributes (P-DESTRE)
+
+The model can predict 0 to 7 semantic person attributes alongside tracking:
+
+| # | Attribute | Classes | Description |
+|---|-----------|---------|-------------|
+| 1 | Gender | 3 | Male, Female, Unknown |
+| 2 | Hairstyle | 6 | Bald, Short, Medium, Long, Horse Tail, Unknown |
+| 3 | Head Accessories | 5 | Hat, Scarf, Neckless, Cannot see, Unknown |
+| 4 | Upper Body | 13 | T-Shirt, Blouse, Sweater, Coat, Suit, Dress, etc. |
+| 5 | Lower Body | 10 | Jeans, Trousers, Shorts, Skirt, etc. |
+| 6 | Feet | 7 | Sport Shoe, Classic Shoe, High Heels, etc. |
+| 7 | Accessories | 8 | Bag, Backpack, Rolling Bag, Umbrella, etc. |
+
+### Experiment matrix
+
+#### R50 Deformable DETR backbone
+
+| Config file | Concepts | Description |
+|-------------|----------|-------------|
+| `r50_deformable_detr_motip_pdestre_base_fold0.yaml` | 0 | Baseline (detection + tracking only) |
+| `r50_deformable_detr_motip_pdestre_2concepts_fold0_v2.yaml` | 2 | Gender + Upper Body |
+| `r50_deformable_detr_motip_pdestre_3concepts.yaml` | 3 | Gender + Upper Body + Lower Body |
+| `r50_motip_pdestre_7concepts_lw.yaml` | 7 | All concepts, learnable task weights |
+| `r50_deformable_detr_motip_pdestre_sam_fold0.yaml` | — | R50 with SAM object masks |
+
+#### RF-DETR (DINOv2-Large) backbone
+
+| Config file | Concepts | Description |
+|-------------|----------|-------------|
+| `rfdetr_large_motip_pdestre_base_fold0_v4.yaml` | 0 | Baseline |
+| `rfdetr_large_motip_pdestre_7concepts_learnable.yaml` | 7 | All concepts, learnable weights |
+| `rfdetr_large_motip_pdestre_7concepts_nolw_fold0.yaml` | 7 | All concepts, fixed loss coefficient |
+| `rfdetr_large_motip_pdestre_sam_fold0.yaml` | — | RF-DETR with SAM object masks |
+
+### Key config parameters
+
+```yaml
+# Base training settings
+EPOCHS: 10
+BATCH_SIZE: 1
+ACCUMULATE_STEPS: 2          # Effective batch size = 2
+LR: 1e-4
+WEIGHT_DECAY: 1e-4
+
+# Concept configuration
+NUM_CONCEPTS: 7              # 0=none, 2, 3, or 7
+CONCEPT_LOSS_COEF: 0.5       # Fixed loss weight (ignored if learnable)
+USE_LEARNABLE_TASK_WEIGHTS: True  # Learn loss balance automatically
+
+# Inference thresholds
+DET_THRESH: 0.3
+NEWBORN_THRESH: 0.6
+ID_THRESH: 0.2
+MISS_TOLERANCE: 30
+
+# Cross-validation
+DATASET_SPLITS: [Train_0]    # Training split
+INFERENCE_SPLIT: val_0       # Validation split
+```
+
+---
+
+## 6. Training
+
+### Option A: Using SLURM scripts (recommended)
+
+#### R50 Deformable DETR
+
+Edit the configuration section at the top of `train_r50.sh`:
+
+```bash
+NUM_CONCEPTS=2               # 0=base, 2=2concepts, 3=3concepts
+FOLD=0                       # 0-9
+RESUME_MODE="auto"           # "none", "auto", or "manual:/path/to/checkpoint.pth"
+```
+
+Submit:
+
+```bash
+sbatch train_r50.sh
+```
+
+#### RF-DETR
+
+Edit the configuration section at the top of `train_rf-detr.sh`:
+
+```bash
+NUM_CONCEPTS=7               # 0=base, 7=7concepts
+USE_LEARNABLE_WEIGHTS=true   # true or false
+FOLD=0                       # 0-9
+CONFIG_VERSION="v4"          # "v4" for base config
+RESUME_MODE="auto"           # "none", "auto", or "manual:/path/to/checkpoint.pth"
+```
+
+Submit:
+
+```bash
+sbatch train_rf-detr.sh
+```
+
+### Option B: Direct command (for debugging)
+
+```bash
+python train.py \
+    --config-path configs/r50_deformable_detr_motip_pdestre_2concepts_fold0_v2.yaml \
+    --exp-name r50_motip_pdestre_2concepts_fold_0 \
+    --detr-pretrain ./pretrains/r50_deformable_detr_coco.pth
+```
+
+### SLURM resource settings
+
+Both scripts request:
+- **Partition**: `gpu_h100`
+- **GPUs**: 1× H100
+- **CPUs**: 8
+- **Memory**: 16 GB
+- **Time limit**: 72 hours
+- **Auto-resubmit**: On SIGUSR1 (handles preemption)
+
+### Monitoring training
+
+```bash
+# Check job status
+squeue -u $USER
+
+# Watch training log (live)
+tail -f outputs/<experiment_name>/train/log.txt
+
+# Check SLURM output
+cat logs/motip_r50_<job_id>.out
+```
+
+### Output structure
+
+After training, each experiment creates:
+
+```
+outputs/<experiment_name>/
+├── checkpoint_0.pth          # Checkpoints (keeps last 4)
+├── checkpoint_1.pth
+├── ...
+└── train/
+    ├── log.txt               # Full training log
+    ├── config.yaml           # Saved config (for reproducibility)
+    ├── events.out.tfevents.* # TensorBoard logs
+    └── eval_during_train/    # Per-epoch validation results
+        ├── epoch_0/
+        ├── epoch_1/
+        └── ...
+```
+
+### Resuming interrupted training
+
+Training scripts support automatic resume. With `RESUME_MODE="auto"`, the script finds the latest checkpoint in the output directory and continues from there. No manual intervention needed after a job timeout or preemption.
+
+---
+
+## 7. Evaluation
+
+After training completes, evaluate tracking performance on the validation or test split.
+
+### Step 1: Submit evaluation job
+
+```bash
+cd /pfs/work9/workspace/scratch/ma_ighidaya-thesis_ignatio/MOTIP
+
+# Evaluate fold 0 on the validation split
+sbatch evaluation/evaluate_fold.sh 0
+```
+
+> **Note**: Edit `evaluation/evaluate_fold.sh` to match your experiment name, config path, and checkpoint path before submitting. The default evaluates `r50_motip_pdestre_fold_0`.
+
+### Step 2: Run evaluation directly (alternative)
+
+```bash
+python evaluation/submit_and_evaluate.py \
+    --config-path configs/r50_deformable_detr_motip_pdestre_2concepts_fold0_v2.yaml \
+    --inference-model outputs/r50_motip_pdestre_2concepts_fold_0/checkpoint_9.pth \
+    --inference-group fold_0 \
+    --inference-dataset P-DESTRE \
+    --inference-split val_0 \
+    --outputs-dir outputs/r50_motip_pdestre_2concepts_fold_0
+```
+
+### Step 3: Extract metrics
+
+```bash
+# Single fold
+python evaluation/extract_metrics.py --exp-prefix r50_motip_pdestre_2concepts --fold 0
+
+# All completed folds
+python evaluation/extract_metrics.py --exp-prefix r50_motip_pdestre_2concepts --all-folds
+```
+
+### Metrics computed
+
+| Category | Metrics |
+|----------|---------|
+| **Tracking** | HOTA, MOTA, MOTP, IDF1 |
+| **Detection** | DetA, DetRe, DetPr |
+| **Identity** | AssA, AssRe, AssPr |
+| **Concept accuracy** | Per-attribute accuracy (gender, upper_body, etc.) |
+
+---
+
+## 8. Visualization
+
+### Generate all charts at once
+
+```bash
+cd /pfs/work9/workspace/scratch/ma_ighidaya-thesis_ignatio/MOTIP/evaluation
+./generate_all_visualizations.sh r50_motip_pdestre_2concepts
+```
+
+This runs metric extraction + chart generation for all folds and saves output to `outputs/<prefix>_visualizations/`.
+
+### Generate charts manually
+
+```bash
+python evaluation/visualize_results.py --exp-prefix r50_motip_pdestre_2concepts_fold_0
+```
+
+### What you get
+
+- Tracking metric bar charts (HOTA, MOTA, IDF1 per fold)
+- Detection performance plots (DetA, DetRe, DetPr)
+- Concept prediction accuracy per attribute
+- Cross-fold summary statistics (mean ± std)
+- Summary report text file
+
+---
+
+## 9. Troubleshooting
+
+### CUDA extension build fails
+
+The build **must run on a compute node** (not a login node). Start an interactive session first:
+
+```bash
+srun --partition=gpu_h100 --gres=gpu:1 --time=00:30:00 --mem=8G --pty bash
+conda activate MOTIP
+
+# Ensure CUDA module is loaded
+module load devel/cuda/11.8
+export CUDA_HOME=/opt/bwhpc/common/devel/cuda/11.8
+
+# Verify nvcc is accessible
+$CUDA_HOME/bin/nvcc --version
+
+# Clean rebuild
+rm -rf models/ops/build/
+cd models/ops && python setup.py build install && cd ../..
+```
+
+### Out of memory (OOM)
+
+- Default settings use `BATCH_SIZE: 1` with `ACCUMULATE_STEPS: 2` (effective batch size 2)
+- If OOM persists, reduce `SAMPLE_LENGTHS` in the config (e.g., from `[15]` to `[10]`)
+
+### "CUDA not available" during evaluation
+
+- Evaluation requires a GPU. Always use `sbatch evaluation/evaluate_fold.sh` — do not run directly on a login node.
+
+### RF-DETR import errors
+
+- Verify the `rf-detr/` directory exists (it is a separate clone, not a submodule)
+- `train.py` adds it to `sys.path` automatically
+
+### Training job gets preempted
+
+- Both `train_r50.sh` and `train_rf-detr.sh` handle SLURM preemption via `--signal=B:SIGUSR1@120`
+- With `RESUME_MODE="auto"`, the job resubmits itself and resumes from the latest checkpoint
+
+### Transformers version compatibility
+
+- If you see errors related to `BackboneMixin` imports, ensure `transformers >= 5.0` is installed
+- The codebase includes a compatibility fix in `models/deformable_detr/dinov2_with_windowed_attn.py`
+
+### Missing evaluation results
+
+1. Check SLURM logs: `cat logs/eval_fold_*.out`
+2. Verify the checkpoint exists: `ls outputs/<exp_name>/checkpoint_*.pth`
+3. Ensure the correct config and split are specified in the evaluation command
+
+---
+
+## Quick Reference
+
+```bash
+# === FULL SETUP (one command after P-DESTRE is extracted in data/) ===
+cd /pfs/work9/workspace/scratch/ma_ighidaya-thesis_ignatio/MOTIP
+./scripts/download_and_preprocess.sh
+
+# === BUILD CUDA EXTENSION (if not done by script — requires GPU node) ===
+srun --partition=gpu_h100 --gres=gpu:1 --time=00:30:00 --mem=8G --pty bash
+conda activate MOTIP
+module load devel/cuda/11.8 && export CUDA_HOME=/opt/bwhpc/common/devel/cuda/11.8
+cd models/ops && python setup.py build install && cd ../..
+exit  # back to login node
+
+# === SMOKE TEST ===
+sbatch scripts/smoke_test.sh            # R50 (2 epochs, ~5 min)
+sbatch scripts/smoke_test_rfdetr.sh     # RF-DETR (2 epochs, ~5 min)
+
+# === TRAINING ===
+# Edit NUM_CONCEPTS and FOLD, then:
+sbatch train_r50.sh                     # R50 backbone
+sbatch train_rf-detr.sh                 # RF-DETR backbone
+
+# === EVALUATION ===
+sbatch evaluation/evaluate_fold.sh 0    # Evaluate fold 0
+
+# === VISUALIZATION ===
+cd evaluation/
+./generate_all_visualizations.sh r50_motip_pdestre_2concepts
+```

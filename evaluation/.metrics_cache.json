@@ -1,0 +1,682 @@
+{
+  "r50_motip_pdestre_base_fold0/val_0/epoch_0": {
+    "mota": 49.91,
+    "idf1": 24.89,
+    "prec": 77.55,
+    "rec": 74.68,
+    "idsw": 7050,
+    "tp": 160267,
+    "fn": 56738,
+    "fp": 48441
+  },
+  "r50_motip_pdestre_base_fold0/val_0/epoch_1": {
+    "mota": 7.91,
+    "idf1": 10.97,
+    "prec": 69.44,
+    "rec": 14.79,
+    "idsw": 828,
+    "tp": 32305,
+    "fn": 190922,
+    "fp": 14580
+  },
+  "r50_motip_pdestre_base_fold0/val_0/epoch_2": {
+    "mota": 56.37,
+    "idf1": 23.46,
+    "prec": 77.24,
+    "rec": 82.48,
+    "idsw": 4068,
+    "tp": 180741,
+    "fn": 39246,
+    "fp": 54444
+  },
+  "r50_motip_pdestre_base_fold0/val_0/epoch_3": {
+    "mota": 8.24,
+    "idf1": 9.51,
+    "prec": 72.6,
+    "rec": 13.85,
+    "idsw": 862,
+    "tp": 30161,
+    "fn": 193032,
+    "fp": 11707
+  },
+  "r50_base_motip_2concepts_fold_0/val_0/epoch_0": {
+    "mota": 41.5,
+    "idf1": 19.92,
+    "prec": 83.45,
+    "rec": 55.46,
+    "idsw": 6629,
+    "tp": 117624,
+    "fn": 99802,
+    "fp": 24647
+  },
+  "r50_base_motip_2concepts_fold_0/val_0/epoch_1": {
+    "mota": 41.04,
+    "idf1": 16.49,
+    "prec": 81.47,
+    "rec": 56.58,
+    "idsw": 5984,
+    "tp": 120785,
+    "fn": 97286,
+    "fp": 28825
+  },
+  "r50_base_motip_2concepts_fold_0/val_0/epoch_2": {
+    "mota": 44.74,
+    "idf1": 21.5,
+    "prec": 76.19,
+    "rec": 72.12,
+    "idsw": 10835,
+    "tp": 150756,
+    "fn": 62464,
+    "fp": 50507
+  },
+  "r50_base_motip_2concepts_fold_0/val_0/epoch_3": {
+    "mota": 43.52,
+    "idf1": 19.49,
+    "prec": 76.83,
+    "rec": 67.03,
+    "idsw": 7382,
+    "tp": 142794,
+    "fn": 73879,
+    "fp": 45283
+  },
+  "r50_base_motip_2concepts_fold_0/val_0/epoch_4": {
+    "mota": 44.73,
+    "idf1": 20.86,
+    "prec": 80.88,
+    "rec": 65.68,
+    "idsw": 12141,
+    "tp": 135010,
+    "fn": 76904,
+    "fp": 34796
+  },
+  "r50_base_motip_2concepts_fold_0/val_0/epoch_5": {
+    "mota": 43.02,
+    "idf1": 14.51,
+    "prec": 82.85,
+    "rec": 56.99,
+    "idsw": 4860,
+    "tp": 122826,
+    "fn": 96369,
+    "fp": 26432
+  },
+  "r50_base_motip_2concepts_fold_0/val_0/epoch_6": {
+    "mota": 47.33,
+    "idf1": 18.62,
+    "prec": 82.29,
+    "rec": 63.9,
+    "idsw": 6304,
+    "tp": 136861,
+    "fn": 80890,
+    "fp": 30812
+  },
+  "r50_base_motip_2concepts_fold_0/val_0/epoch_7": {
+    "mota": 48.94,
+    "idf1": 21.04,
+    "prec": 82.74,
+    "rec": 64.5,
+    "idsw": 4720,
+    "tp": 139788,
+    "fn": 79547,
+    "fp": 30145
+  },
+  "r50_base_motip_2concepts_fold_0/val_0/epoch_8": {
+    "mota": 46.06,
+    "idf1": 22.48,
+    "prec": 82.79,
+    "rec": 62.5,
+    "idsw": 7710,
+    "tp": 132321,
+    "fn": 84024,
+    "fp": 29118
+  },
+  "r50_base_motip_2concepts_fold_0/val_0/epoch_9": {
+    "mota": 49.36,
+    "idf1": 22.81,
+    "prec": 83.17,
+    "rec": 63.95,
+    "idsw": 3701,
+    "tp": 139591,
+    "fn": 80763,
+    "fp": 28990
+  },
+  "r50_motip_pdestre_3concepts_fold_0/val_0/epoch_0": {
+    "mota": 38.47,
+    "idf1": 18.11,
+    "prec": 79.85,
+    "rec": 56.42,
+    "idsw": 8335,
+    "tp": 118088,
+    "fn": 97632,
+    "fp": 31901
+  },
+  "r50_motip_pdestre_3concepts_fold_0/val_0/epoch_1": {
+    "mota": 43.73,
+    "idf1": 16.81,
+    "prec": 82.08,
+    "rec": 59.59,
+    "idsw": 6367,
+    "tp": 127143,
+    "fn": 90545,
+    "fp": 29158
+  },
+  "r50_motip_pdestre_3concepts_fold_0/val_0/epoch_2": {
+    "mota": 49.86,
+    "idf1": 17.22,
+    "prec": 79.9,
+    "rec": 69.7,
+    "idsw": 5155,
+    "tp": 151009,
+    "fn": 67891,
+    "fp": 39286
+  },
+  "r50_motip_pdestre_3concepts_fold_0/val_0/epoch_3": {
+    "mota": 43.89,
+    "idf1": 13.8,
+    "prec": 81.73,
+    "rec": 59.11,
+    "idsw": 4492,
+    "tp": 127937,
+    "fn": 91626,
+    "fp": 29604
+  },
+  "r50_motip_pdestre_7concepts_learnable_v2_fold_0/val_1/epoch_0": {
+    "mota": 7.48,
+    "idf1": 4.94,
+    "prec": 83.06,
+    "rec": 10.11,
+    "idsw": 1710,
+    "tp": 28626,
+    "fn": 269689,
+    "fp": 6187
+  },
+  "r50_motip_pdestre_7concepts_learnable_v2_fold_0/val_1/epoch_1": {
+    "mota": 14.53,
+    "idf1": 10.21,
+    "prec": 91.73,
+    "rec": 34.85,
+    "idsw": 51540,
+    "tp": 53016,
+    "fn": 195469,
+    "fp": 9424
+  },
+  "r50_motip_pdestre_7concepts_learnable_v2_fold_0/val_1/epoch_2": {
+    "mota": 1.95,
+    "idf1": 3.26,
+    "prec": 93.73,
+    "rec": 51.37,
+    "idsw": 137965,
+    "tp": 16167,
+    "fn": 145893,
+    "fp": 10303
+  },
+  "r50_motip_pdestre_7concepts_learnable_v2_fold_0/val_1/epoch_3": {
+    "mota": 50.16,
+    "idf1": 18.78,
+    "prec": 85.07,
+    "rec": 62.56,
+    "idsw": 4283,
+    "tp": 183427,
+    "fn": 112315,
+    "fp": 32949
+  },
+  "r50_motip_pdestre_7concepts_learnable_v2_fold_0/val_1/epoch_4": {
+    "mota": 32.91,
+    "idf1": 9.26,
+    "prec": 86.78,
+    "rec": 40.28,
+    "idsw": 3707,
+    "tp": 117143,
+    "fn": 179175,
+    "fp": 18418
+  },
+  "r50_motip_pdestre_7concepts_learnable_v2_fold_0/val_1/epoch_5": {
+    "mota": 30.69,
+    "idf1": 11.82,
+    "prec": 82.17,
+    "rec": 40.61,
+    "idsw": 3331,
+    "tp": 118510,
+    "fn": 178184,
+    "fp": 26431
+  },
+  "r50_motip_pdestre_7concepts_learnable_v2_fold_0/val_1/epoch_6": {
+    "mota": 37.14,
+    "idf1": 11.14,
+    "prec": 86.67,
+    "rec": 45.03,
+    "idsw": 2910,
+    "tp": 132196,
+    "fn": 164919,
+    "fp": 20781
+  },
+  "r50_motip_pdestre_7concepts_learnable_v2_fold_0/val_1/epoch_7": {
+    "mota": 35.99,
+    "idf1": 12.2,
+    "prec": 87.6,
+    "rec": 43.02,
+    "idsw": 2826,
+    "tp": 126244,
+    "fn": 170955,
+    "fp": 18271
+  },
+  "r50_motip_pdestre_7concepts_learnable_v2_fold_0/val_1/epoch_8": {
+    "mota": 34.13,
+    "idf1": 9.81,
+    "prec": 90.23,
+    "rec": 39.22,
+    "idsw": 2541,
+    "tp": 115137,
+    "fn": 182347,
+    "fp": 12740
+  },
+  "r50_motip_pdestre_7concepts_learnable_fold_1/val_1/epoch_9": {
+    "mota": 8.58,
+    "idf1": 5.92,
+    "prec": 83.05,
+    "rec": 11.39,
+    "idsw": 1468,
+    "tp": 32707,
+    "fn": 265850,
+    "fp": 6974
+  },
+  "rfdetr_large_motip_pdestre_base_fold0/val_0/epoch_0": {
+    "mota": 22.77,
+    "idf1": 14.91,
+    "prec": 83.25,
+    "rec": 30.5,
+    "idsw": 3558,
+    "tp": 64773,
+    "fn": 155724,
+    "fp": 13751
+  },
+  "rfdetr_large_motip_pdestre_base_fold0/val_0/epoch_1": {
+    "mota": 0.0,
+    "idf1": 0.0,
+    "prec": 0.0,
+    "rec": 0.0,
+    "idsw": 0,
+    "tp": 0,
+    "fn": 224055,
+    "fp": 0
+  },
+  "rfdetr_large_motip_pdestre_base_fold0/val_0/epoch_2": {
+    "mota": 0.0,
+    "idf1": 0.0,
+    "prec": 0.0,
+    "rec": 0.0,
+    "idsw": 0,
+    "tp": 0,
+    "fn": 224055,
+    "fp": 0
+  },
+  "rfdetr_large_motip_pdestre_base_fold0/val_0/epoch_3": {
+    "mota": 0.0,
+    "idf1": 0.0,
+    "prec": 0.0,
+    "rec": 0.0,
+    "idsw": 0,
+    "tp": 0,
+    "fn": 224055,
+    "fp": 0
+  },
+  "rfdetr_large_motip_pdestre_base_fold0/val_0/epoch_4": {
+    "mota": 0.0,
+    "idf1": 0.0,
+    "prec": 0.0,
+    "rec": 0.0,
+    "idsw": 0,
+    "tp": 0,
+    "fn": 224055,
+    "fp": 0
+  },
+  "rfdetr_large_motip_pdestre_base_fold0/val_0/epoch_5": {
+    "mota": 0.0,
+    "idf1": 0.0,
+    "prec": 0.0,
+    "rec": 0.0,
+    "idsw": 0,
+    "tp": 0,
+    "fn": 224055,
+    "fp": 0
+  },
+  "rfdetr_large_motip_pdestre_base_fold0/val_0/epoch_6": {
+    "mota": 0.0,
+    "idf1": 0.0,
+    "prec": 0.0,
+    "rec": 0.0,
+    "idsw": 0,
+    "tp": 0,
+    "fn": 224055,
+    "fp": 0
+  },
+  "rfdetr_large_motip_pdestre_base_fold0/val_0/epoch_7": {
+    "mota": 0.0,
+    "idf1": 0.0,
+    "prec": 0.0,
+    "rec": 0.0,
+    "idsw": 0,
+    "tp": 0,
+    "fn": 224055,
+    "fp": 0
+  },
+  "rfdetr_large_motip_pdestre_base_fold0/val_0/epoch_8": {
+    "mota": 0.0,
+    "idf1": 0.0,
+    "prec": 0.0,
+    "rec": 0.0,
+    "idsw": 0,
+    "tp": 0,
+    "fn": 224055,
+    "fp": 0
+  },
+  "rfdetr_large_motip_pdestre_base_fold0/val_0/epoch_9": {
+    "mota": 0.0,
+    "idf1": 0.0,
+    "prec": 0.0,
+    "rec": 0.0,
+    "idsw": 0,
+    "tp": 0,
+    "fn": 224055,
+    "fp": 0
+  },
+  "rfdetr_large_motip_pdestre_base_fold0_v2/val_0/epoch_0": {
+    "mota": 0.0,
+    "idf1": 0.0,
+    "prec": 0.0,
+    "rec": 0.0,
+    "idsw": 0,
+    "tp": 0,
+    "fn": 224055,
+    "fp": 0
+  },
+  "rfdetr_large_motip_pdestre_base_fold0_v3/val_0/epoch_0": {
+    "mota": 22.6,
+    "idf1": 15.43,
+    "prec": 77.14,
+    "rec": 37.15,
+    "idsw": 7945,
+    "tp": 75288,
+    "fn": 140822,
+    "fp": 24662
+  },
+  "rfdetr_large_motip_pdestre_base_fold0_v3/val_0/epoch_1": {
+    "mota": 27.45,
+    "idf1": 17.08,
+    "prec": 78.53,
+    "rec": 41.85,
+    "idsw": 6633,
+    "tp": 87126,
+    "fn": 130296,
+    "fp": 25628
+  },
+  "rfdetr_large_motip_pdestre_7concepts_lw_fold0/val_0/epoch_0": {
+    "mota": 14.33,
+    "idf1": 8.29,
+    "prec": 72.44,
+    "rec": 24.26,
+    "idsw": 1570,
+    "tp": 52779,
+    "fn": 169706,
+    "fp": 20675
+  },
+  "rfdetr_large_motip_pdestre_7concepts_lw_fold0/val_0/epoch_1": {
+    "mota": 11.04,
+    "idf1": 11.14,
+    "prec": 66.18,
+    "rec": 27.65,
+    "idsw": 5553,
+    "tp": 56403,
+    "fn": 162099,
+    "fp": 31663
+  },
+  "rfdetr_large_motip_pdestre_7concepts_lw_fold0/val_0/epoch_2": {
+    "mota": 16.59,
+    "idf1": 13.19,
+    "prec": 67.07,
+    "rec": 38.0,
+    "idsw": 6174,
+    "tp": 78976,
+    "fn": 138905,
+    "fp": 41815
+  },
+  "rfdetr_large_motip_pdestre_7concepts_lw_fold0/val_0/epoch_3": {
+    "mota": 13.36,
+    "idf1": 13.04,
+    "prec": 63.55,
+    "rec": 38.08,
+    "idsw": 6450,
+    "tp": 78867,
+    "fn": 138738,
+    "fp": 48930
+  },
+  "rfdetr_large_motip_pdestre_7concepts_lw_fold0/val_0/epoch_4": {
+    "mota": 9.24,
+    "idf1": 11.46,
+    "prec": 62.73,
+    "rec": 29.44,
+    "idsw": 6068,
+    "tp": 59892,
+    "fn": 158095,
+    "fp": 39187
+  },
+  "rfdetr_large_motip_pdestre_7concepts_lw_fold0/val_0/epoch_5": {
+    "mota": 8.88,
+    "idf1": 11.0,
+    "prec": 63.82,
+    "rec": 26.3,
+    "idsw": 5623,
+    "tp": 53307,
+    "fn": 165125,
+    "fp": 33403
+  },
+  "rfdetr_large_motip_pdestre_7concepts_lw_fold0/val_0/epoch_6": {
+    "mota": 4.12,
+    "idf1": 6.47,
+    "prec": 61.26,
+    "rec": 16.8,
+    "idsw": 4616,
+    "tp": 33036,
+    "fn": 186403,
+    "fp": 23812
+  },
+  "rfdetr_large_motip_pdestre_7concepts_lw_fold0/val_0/epoch_7": {
+    "mota": 3.52,
+    "idf1": 6.52,
+    "prec": 59.69,
+    "rec": 18.39,
+    "idsw": 5484,
+    "tp": 35726,
+    "fn": 182845,
+    "fp": 27830
+  },
+  "rfdetr_large_motip_pdestre_7concepts_learnable_fold0/val_0/epoch_0": {
+    "mota": 40.04,
+    "idf1": 27.67,
+    "prec": 76.5,
+    "rec": 63.28,
+    "idsw": 8506,
+    "tp": 133274,
+    "fn": 82275,
+    "fp": 43552
+  },
+  "rfdetr_large_motip_pdestre_7concepts_learnable_fold0/val_0/epoch_1": {
+    "mota": 23.96,
+    "idf1": 15.47,
+    "prec": 76.85,
+    "rec": 37.49,
+    "idsw": 5012,
+    "tp": 78987,
+    "fn": 140056,
+    "fp": 25310
+  },
+  "rfdetr_large_motip_pdestre_7concepts_learnable_fold0/val_0/epoch_2": {
+    "mota": 26.36,
+    "idf1": 15.37,
+    "prec": 76.52,
+    "rec": 41.78,
+    "idsw": 5824,
+    "tp": 87792,
+    "fn": 130439,
+    "fp": 28724
+  },
+  "rfdetr_large_motip_pdestre_7concepts_learnable_fold0/val_0/epoch_3": {
+    "mota": 18.05,
+    "idf1": 9.03,
+    "prec": 79.96,
+    "rec": 27.25,
+    "idsw": 5305,
+    "tp": 55751,
+    "fn": 162999,
+    "fp": 15303
+  },
+  "rfdetr_large_motip_pdestre_7concepts_learnable_fold0/val_0/epoch_4": {
+    "mota": 19.5,
+    "idf1": 11.39,
+    "prec": 77.74,
+    "rec": 30.69,
+    "idsw": 5385,
+    "tp": 63380,
+    "fn": 155290,
+    "fp": 19693
+  },
+  "rfdetr_large_motip_pdestre_7concepts_learnable_fold0/val_0/epoch_5": {
+    "mota": 20.02,
+    "idf1": 13.79,
+    "prec": 72.34,
+    "rec": 37.44,
+    "idsw": 6950,
+    "tp": 76931,
+    "fn": 140174,
+    "fp": 32073
+  },
+  "rfdetr_large_motip_pdestre_7concepts_learnable_fold0/val_0/epoch_6": {
+    "mota": 16.27,
+    "idf1": 10.91,
+    "prec": 73.13,
+    "rec": 30.5,
+    "idsw": 6772,
+    "tp": 61559,
+    "fn": 155724,
+    "fp": 25110
+  },
+  "rfdetr_base_motip_pdestre_base_fold0/val_0/epoch_0": {
+    "mota": 0.0,
+    "idf1": 0.0,
+    "prec": 0.0,
+    "rec": 0.0,
+    "idsw": 0,
+    "tp": 0,
+    "fn": 224055,
+    "fp": 0
+  },
+  "r50_motip_pdestre_3concepts_fold_0/val_0/epoch_4": {
+    "mota": 44.07310704960835,
+    "idf1": 17.292148467016236,
+    "prec": 80.30733364102201,
+    "rec": 60.57485885162125,
+    "tp": 132029,
+    "fn": 88334,
+    "fp": 33281,
+    "idsw": 3692
+  },
+  "rfdetr_large_motip_pdestre_2concepts_fold0/val_0/epoch_0": {
+    "mota": 30.678181696458463,
+    "idf1": 16.912209643529373,
+    "prec": 84.85611785359896,
+    "rec": 39.6938251768539,
+    "tp": 84608,
+    "fn": 135119,
+    "fp": 15872,
+    "idsw": 4328
+  },
+  "rfdetr_large_motip_pdestre_2concepts_fold0/val_0/epoch_1": {
+    "mota": 18.978375845216576,
+    "idf1": 11.419038337655474,
+    "prec": 79.46598855689764,
+    "rec": 27.894936511124502,
+    "tp": 58672,
+    "fn": 161555,
+    "fp": 16150,
+    "idsw": 3828
+  },
+  "rfdetr_large_motip_pdestre_2concepts_fold0/val_0/epoch_2": {
+    "mota": 15.627859230992392,
+    "idf1": 8.061890928569957,
+    "prec": 78.74402608423779,
+    "rec": 23.605811073173996,
+    "tp": 49292,
+    "fn": 171165,
+    "fp": 14277,
+    "idsw": 3598
+  },
+  "rfdetr_large_motip_pdestre_2concepts_fold0/val_0/epoch_3": {
+    "mota": 14.96195130659883,
+    "idf1": 7.470997035483938,
+    "prec": 78.73756228619628,
+    "rec": 22.497601035460043,
+    "tp": 47135,
+    "fn": 173648,
+    "fp": 13612,
+    "idsw": 3272
+  },
+  "rfdetr_large_motip_pdestre_2concepts_fold0/val_0/epoch_4": {
+    "mota": 14.024681439825038,
+    "idf1": 7.4876874512160585,
+    "prec": 77.00612335272649,
+    "rec": 22.50742005311196,
+    "tp": 46481,
+    "fn": 173626,
+    "fp": 15058,
+    "idsw": 3948
+  },
+  "rfdetr_large_motip_pdestre_2concepts_fold0/val_0/epoch_5": {
+    "mota": 15.746133761799562,
+    "idf1": 11.189266005222612,
+    "prec": 73.91017806216598,
+    "rec": 27.529401263082725,
+    "tp": 57053,
+    "fn": 162374,
+    "fp": 21773,
+    "idsw": 4628
+  },
+  "rfdetr_large_motip_pdestre_2concepts_fold0/val_0/epoch_6": {
+    "mota": 8.04980919863426,
+    "idf1": 5.427910106709459,
+    "prec": 72.98002112114486,
+    "rec": 15.113253442235166,
+    "tp": 30573,
+    "fn": 190193,
+    "fp": 12537,
+    "idsw": 3289
+  },
+  "rfdetr_large_motip_pdestre_2concepts_fold0/val_0/epoch_7": {
+    "mota": 8.94467876191114,
+    "idf1": 5.391023619125368,
+    "prec": 75.42372881355932,
+    "rec": 15.293119992858898,
+    "tp": 31206,
+    "fn": 189790,
+    "fp": 11165,
+    "idsw": 3059
+  },
+  "rfdetr_large_motip_pdestre_2concepts_fold0/val_0/epoch_8": {
+    "mota": 5.90256856575394,
+    "idf1": 3.4505569299832137,
+    "prec": 71.88267321447636,
+    "rec": 12.02070920086586,
+    "tp": 23760,
+    "fn": 197122,
+    "fp": 10535,
+    "idsw": 3173
+  },
+  "rfdetr_large_motip_pdestre_2concepts_fold0/val_0/epoch_9": {
+    "mota": 6.311843074245161,
+    "idf1": 3.8036974018773777,
+    "prec": 72.71344717182498,
+    "rec": 12.163531275802816,
+    "tp": 24369,
+    "fn": 196802,
+    "fp": 10227,
+    "idsw": 2884
+  }
+}

@@ -46,7 +46,7 @@ def main():
     # Load config
     config = yaml_to_dict(args.config_path)
     if "SUPER_CONFIG_PATH" in config and config["SUPER_CONFIG_PATH"] is not None:
-        config = load_super_config(config)
+        config = load_super_config(config, config["SUPER_CONFIG_PATH"])
     config = update_config(config=config, args=None)
 
     # Determine outputs dir

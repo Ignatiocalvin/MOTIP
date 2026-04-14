@@ -7,19 +7,15 @@
 #   sbatch train_rf-detr.sh
 #
 # Supported configurations:
-#   NUM_CONCEPTS: 0 (base), 7 (7concepts)
-#   USE_LEARNABLE_WEIGHTS: true or false (only applies when NUM_CONCEPTS=7)
+#   NUM_CONCEPTS: 0 (base), 2 (2concepts), 7 (7concepts learnable)
 #   FOLD: 0, 1, 2, 3, 4
-#   CONFIG_VERSION: "v4" (for base), "learnable"/"nolw" (for 7concepts)
 #   RESUME_MODE: "none", "auto", or "manual:/path/to/checkpoint.pth"
 #
 # ═══════════════════════════════════════════════════════════════════════════════
 
 # ── CONFIGURATION (edit these) ────────────────────────────────────────────────
-NUM_CONCEPTS=7               # 0=base, 7=7concepts
-USE_LEARNABLE_WEIGHTS=true   # true or false (only for 7concepts)
+NUM_CONCEPTS=7               # 0=base, 2=2concepts, 7=7concepts (learnable)
 FOLD=0                       # Fold number for cross-validation
-CONFIG_VERSION="v4"          # "v4" for base, ignored for 7concepts
 RESUME_MODE="auto"           # "none", "auto", or "manual:/path/to/checkpoint.pth"
 # ──────────────────────────────────────────────────────────────────────────────
 
@@ -46,20 +42,19 @@ SCRIPT_PATH="${SCRIPT_DIR}/train_rf-detr.sh"
 # ── Build config path and experiment name based on NUM_CONCEPTS ───────────────
 case $NUM_CONCEPTS in
     0)
-        CONFIG="./configs/rfdetr_large_motip_pdestre_base_fold${FOLD}_${CONFIG_VERSION}.yaml"
+        CONFIG="./configs/rfdetr_large_motip_pdestre_base.yaml"
         EXP_NAME="rfdetr_large_motip_pdestre_base_fold${FOLD}"
         ;;
+    2)
+        CONFIG="./configs/rfdetr_large_motip_pdestre_2concepts.yaml"
+        EXP_NAME="rfdetr_large_motip_pdestre_2concepts_fold${FOLD}"
+        ;;
     7)
-        if [ "$USE_LEARNABLE_WEIGHTS" = true ]; then
-            CONFIG="./configs/rfdetr_large_motip_pdestre_7concepts_learnable.yaml"
-            EXP_NAME="rfdetr_large_motip_pdestre_7concepts_learnable_fold${FOLD}"
-        else
-            CONFIG="./configs/rfdetr_large_motip_pdestre_7concepts_nolw_fold${FOLD}.yaml"
-            EXP_NAME="rfdetr_large_motip_pdestre_7concepts_nolw_fold${FOLD}"
-        fi
+        CONFIG="./configs/rfdetr_large_motip_pdestre_7concepts_learnable.yaml"
+        EXP_NAME="rfdetr_large_motip_pdestre_7concepts_learnable_fold${FOLD}"
         ;;
     *)
-        echo "ERROR: NUM_CONCEPTS must be 0 or 7. Got: $NUM_CONCEPTS"
+        echo "ERROR: NUM_CONCEPTS must be 0, 2, or 7. Got: $NUM_CONCEPTS"
         exit 1
         ;;
 esac

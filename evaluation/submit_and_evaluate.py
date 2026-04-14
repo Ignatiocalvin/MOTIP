@@ -5,6 +5,10 @@ import os
 import time
 import torch
 import subprocess
+from pathlib import Path
+from collections import defaultdict
+import numpy as np
+import motmetrics as mm
 from accelerate import Accelerator
 from accelerate.state import PartialState
 from torch.utils.data import DataLoader
@@ -19,6 +23,149 @@ from models.runtime_tracker import RuntimeTracker
 from log.log import Metrics
 from models.motip import build as build_motip
 from models.misc import load_checkpoint
+
+
+def compute_pdestre_metrics(gt_dir: str, tracker_dir: str, split_file: str, logger=None):
+    """
+    Compute tracking metrics for P-DESTRE using motmetrics.
+    
+    Args:
+        gt_dir: Path to P-DESTRE annotations folder
+        tracker_dir: Path to tracker output folder
+        split_file: Path to split file (e.g., val_0.txt) listing sequences to evaluate
+        logger: Optional logger for progress messages
+    
+    Returns:
+        dict with MOTA, IDF1, Precision, Recall, etc.
+    """
+    gt_dir = Path(gt_dir)
+    tracker_dir = Path(tracker_dir)
+    split_file = Path(split_file)
+    
+    # Read sequence names from split file
+    val_seqs = [l.strip().replace('.txt', '') for l in split_file.read_text().splitlines() if l.strip()]
+    
+    if logger:
+        logger.info(f"Computing P-DESTRE metrics for {len(val_seqs)} sequences...")
+    
+    def load_gt(seq_name):
+        """Load ground truth annotations with proper filtering."""
+        annotations = defaultdict(list)
+        gt_file = gt_dir / f"{seq_name}.txt"
+        for line in gt_file.read_text().splitlines():
+            parts = line.strip().split(',')
+            if len(parts) < 6:
+                continue
+            frame_id = int(parts[0])
+            track_id = int(parts[1])
+            if track_id < 0:  # crowd / ignore annotations
+                continue
+            x, y, w, h = map(float, parts[2:6])
+            if w <= 0 or h <= 0:  # invalid boxes
+                continue
+            annotations[frame_id].append((track_id, x, y, w, h))
+        return dict(annotations)
+    
+    def load_pred(seq_name):
+        """Load tracker predictions."""
+        predictions = defaultdict(list)
+        pred_file = tracker_dir / f"{seq_name}.txt"
+        if not pred_file.exists():
+            return {}
+        for line in pred_file.read_text().splitlines():
+            parts = line.strip().split(',')
+            if len(parts) < 6:
+                continue
+            frame_id = int(parts[0])
+            track_id = int(parts[1])
+            if track_id < 0:
+                continue
+            x, y, w, h = map(float, parts[2:6])
+            predictions[frame_id].append((track_id, x, y, w, h))
+        return dict(predictions)
+    
+    def compute_iou(box1, box2):
+        """Compute IoU between two (x, y, w, h) boxes."""
+        x1, y1, w1, h1 = box1
+        x2, y2, w2, h2 = box2
+        inter_x1 = max(x1, x2)
+        inter_y1 = max(y1, y2)
+        inter_x2 = min(x1 + w1, x2 + w2)
+        inter_y2 = min(y1 + h1, y2 + h2)
+        inter_w = max(0, inter_x2 - inter_x1)
+        inter_h = max(0, inter_y2 - inter_y1)
+        inter_area = inter_w * inter_h
+        union_area = w1 * h1 + w2 * h2 - inter_area
+        return inter_area / union_area if union_area > 0 else 0.0
+    
+    # Compute metrics using per-sequence accumulators to avoid ID collisions
+    accs = []
+    names = []
+    
+    for seq_name in val_seqs:
+        gt_data = load_gt(seq_name)
+        pred_data = load_pred(seq_name)
+        
+        if not pred_data:
+            if logger:
+                logger.warning(f"Missing tracker file for sequence {seq_name}")
+            continue
+        
+        acc = mm.MOTAccumulator(auto_id=True)
+        all_frames = sorted(set(gt_data.keys()) | set(pred_data.keys()))
+        
+        for frame_id in all_frames:
+            gt_boxes = gt_data.get(frame_id, [])
+            pred_boxes = pred_data.get(frame_id, [])
+            gt_ids = [box[0] for box in gt_boxes]
+            pred_ids = [box[0] for box in pred_boxes]
+            
+            if len(gt_boxes) > 0 and len(pred_boxes) > 0:
+                dist_matrix = np.zeros((len(gt_boxes), len(pred_boxes)))
+                for i, gt_box in enumerate(gt_boxes):
+                    for j, pred_box in enumerate(pred_boxes):
+                        iou = compute_iou(gt_box[1:], pred_box[1:])
+                        dist_matrix[i, j] = 1 - iou
+                dist_matrix[dist_matrix > 0.5] = np.nan
+            else:
+                dist_matrix = np.full((len(gt_boxes), len(pred_boxes)), np.nan)
+            
+            acc.update(gt_ids, pred_ids, dist_matrix)
+        
+        accs.append(acc)
+        names.append(seq_name)
+    
+    if not accs:
+        if logger:
+            logger.warning("No valid sequences to evaluate")
+        return {"MOTA": 0.0, "IDF1": 0.0, "Precision": 0.0, "Recall": 0.0}
+    
+    # Compute aggregate metrics using compute_many with generate_overall=True
+    mh = mm.metrics.create()
+    summary = mh.compute_many(
+        accs, names=names,
+        metrics=['num_objects', 'num_matches', 'num_false_positives', 'num_misses',
+                 'num_switches', 'idf1', 'precision', 'recall', 'mota'],
+        generate_overall=True
+    )
+    
+    row = summary.loc['OVERALL']
+    result = {
+        "MOTA": float(row['mota']) * 100,
+        "IDF1": float(row['idf1']) * 100,
+        "Precision": float(row['precision']) * 100 if not np.isnan(row['precision']) else 0.0,
+        "Recall": float(row['recall']) * 100 if not np.isnan(row['recall']) else 0.0,
+        "TP": int(row['num_matches']),
+        "FP": int(row['num_false_positives']),
+        "FN": int(row['num_misses']),
+        "IDsw": int(row['num_switches']),
+    }
+    
+    if logger:
+        logger.info(f"P-DESTRE metrics: MOTA={result['MOTA']:.2f}%, IDF1={result['IDF1']:.2f}%, "
+                    f"Prec={result['Precision']:.2f}%, Rec={result['Recall']:.2f}%")
+    
+    return result
 
 
 def submit_and_evaluate(config: dict):
@@ -316,10 +463,23 @@ def submit_and_evaluate_one_model(
                 }
                 cmd = ["python", "TrackEval/scripts/run_mot_challenge.py"]
             elif dataset in ["P-DESTRE"]:
-                # P-DESTRE uses splits folder for sequence lists
-                # Skip standard evaluation for now, just log success
-                logger.success(f"P-DESTRE tracking results saved to {tracker_dir}", only_main=True)
+                # Compute P-DESTRE metrics using motmetrics
+                split_file = os.path.join(data_root, dataset, "splits", f"{data_split}.txt")
+                pdestre_metrics = compute_pdestre_metrics(
+                    gt_dir=gt_dir,
+                    tracker_dir=tracker_dir,
+                    split_file=split_file,
+                    logger=logger,
+                )
+                logger.success(f"P-DESTRE tracking evaluation complete.", only_main=True)
                 metrics = Metrics()
+                # Map P-DESTRE metrics to the standard format
+                metrics["MOTA"].update(pdestre_metrics["MOTA"])
+                metrics["IDF1"].update(pdestre_metrics["IDF1"])
+                # Note: DetA, AssA, HOTA not computed by motmetrics (would need TrackEval)
+                # Using Precision/Recall as placeholders for DetPr/DetRe
+                metrics["DetPr"].update(pdestre_metrics["Precision"])
+                metrics["DetRe"].update(pdestre_metrics["Recall"])
                 return metrics
             elif dataset in ["PersonPath22_Inference"]:
                 args = {

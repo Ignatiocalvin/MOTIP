@@ -354,8 +354,8 @@ def train_engine(config: dict):
             x_axis_name="epoch",
         )
 
-        # Save checkpoint:
-        if (epoch + 1) % config["SAVE_CHECKPOINT_PER_EPOCH"] == 0:
+        # Save checkpoint (skip if SAVE_CHECKPOINT_PER_EPOCH is 0):
+        if config["SAVE_CHECKPOINT_PER_EPOCH"] > 0 and (epoch + 1) % config["SAVE_CHECKPOINT_PER_EPOCH"] == 0:
             save_checkpoint(
                 model=model,
                 path=os.path.join(outputs_dir, f"checkpoint_{epoch}.pth"),

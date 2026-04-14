@@ -42,19 +42,23 @@ SCRIPT_PATH="${SCRIPT_DIR}/train_r50.sh"
 # ── Build config path and experiment name based on NUM_CONCEPTS ───────────────
 case $NUM_CONCEPTS in
     0)
-        CONFIG="./configs/r50_deformable_detr_motip_pdestre_base_fold${FOLD}.yaml"
+        CONFIG="./configs/r50_motip_pdestre_base.yaml"
         EXP_NAME="r50_motip_pdestre_base_fold_${FOLD}"
         ;;
     2)
-        CONFIG="./configs/r50_deformable_detr_motip_pdestre_2concepts_fold${FOLD}_v2.yaml"
+        CONFIG="./configs/r50_motip_pdestre_2concepts.yaml"
         EXP_NAME="r50_motip_pdestre_2concepts_fold_${FOLD}"
         ;;
     3)
-        CONFIG="./configs/r50_deformable_detr_motip_pdestre_3concepts.yaml"
+        CONFIG="./configs/r50_motip_pdestre_3concepts.yaml"
         EXP_NAME="r50_motip_pdestre_3concepts_fold_${FOLD}"
         ;;
+    7)
+        CONFIG="./configs/r50_motip_pdestre_7concepts_lw.yaml"
+        EXP_NAME="r50_motip_pdestre_7concepts_learnable_fold_${FOLD}"
+        ;;
     *)
-        echo "ERROR: NUM_CONCEPTS must be 0, 2, or 3. Got: $NUM_CONCEPTS"
+        echo "ERROR: NUM_CONCEPTS must be 0, 2, 3, or 7. Got: $NUM_CONCEPTS"
         exit 1
         ;;
 esac

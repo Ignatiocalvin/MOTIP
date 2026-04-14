@@ -1,0 +1,33 @@
+# R50 Deformable DETR MOTIP - P-DESTRE Base (No Concepts)
+# Pure detection + ID tracking baseline
+# Standardized configuration for fair comparisons
+
+SUPER_CONFIG_PATH: ./configs/r50_deformable_detr_motip_dancetrack.yaml
+
+# --- Data Settings ---
+DATASETS: [P-DESTRE]
+DATASET_SPLITS: [Train_0]
+INFERENCE_DATASET: P-DESTRE
+INFERENCE_SPLIT: val_0
+
+# --- Sampling (inherited from parent: SAMPLE_LENGTHS=15, SAMPLE_INTERVALS=4) ---
+
+# --- No Concepts ---
+NUM_CONCEPTS: 0
+
+MOTIP:
+  N_CONCEPTS: 0
+  DETR_LOSSES: [labels, boxes, cardinality]
+
+# --- Training Settings (mostly inherited) ---
+NEWBORN_THRESH: 0.6
+
+# --- Evaluation Settings ---
+EVAL_DURING_TRAIN: True
+EVAL_DURING_TRAIN_EPOCHS: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]
+
+# --- Checkpoint Settings ---
+SAVE_CHECKPOINT_PER_EPOCH: 1
+MULTI_LAST_CHECKPOINTS: 4
+SAVE_CHECKPOINT_EVERY_N_STEPS: 20000
+LOGGING_INTERVAL: 5000

@@ -1,0 +1,45 @@
+# R50 Deformable DETR MOTIP - P-DESTRE 7-Concept with Learnable Weights
+# Predicts: Gender, Hairstyle, Head Accessories, Upper Body, Lower Body, Feet, Accessories
+# Uses learnable task weights for automatic loss balancing
+# Standardized configuration for fair comparisons
+
+SUPER_CONFIG_PATH: ./configs/r50_deformable_detr_motip_dancetrack.yaml
+
+# --- Data Settings ---
+DATASETS: [P-DESTRE]
+DATASET_SPLITS: [Train_0]
+INFERENCE_DATASET: P-DESTRE
+INFERENCE_SPLIT: val_0
+
+# --- Sampling (inherited from parent: SAMPLE_LENGTHS=15, SAMPLE_INTERVALS=4) ---
+
+# --- Concept Settings ---
+NUM_CONCEPTS: 7
+
+MOTIP:
+  N_CONCEPTS: 7
+  CONCEPT_DIM: 224                   # 32 dims per concept × 7 concepts
+  CONCEPT_BOTTLENECK_MODE: "hard"
+  CONCEPT_CLASSES:
+    - ["gender", 3, 2]               # Male, Female, Unknown
+    - ["hairstyle", 6, 5]            # Bald, Short, Medium, Long, Horse Tail, Unknown
+    - ["head_accessories", 5, 4]     # Hat, Scarf, Neckless, Cannot see, Unknown
+    - ["upper_body", 13, 12]         # T-Shirt, Polo, etc., Unknown
+    - ["lower_body", 10, 9]          # Jeans, Trousers, etc., Unknown
+    - ["feet", 7, 6]                 # Sport Shoe, Classic, etc., Unknown
+    - ["accessories", 8, 7]          # Bag, Backpack, etc., Unknown
+  DETR_LOSSES: [labels, boxes, cardinality, concepts]
+  USE_LEARNABLE_TASK_WEIGHTS: True   # Auto-balance detection vs concept losses
+
+# --- Training Settings (mostly inherited) ---
+NEWBORN_THRESH: 0.6
+
+# --- Evaluation Settings ---
+EVAL_DURING_TRAIN: True
+EVAL_DURING_TRAIN_EPOCHS: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]
+
+# --- Checkpoint Settings ---
+SAVE_CHECKPOINT_PER_EPOCH: 1
+MULTI_LAST_CHECKPOINTS: 4
+SAVE_CHECKPOINT_EVERY_N_STEPS: 20000
+LOGGING_INTERVAL: 5000

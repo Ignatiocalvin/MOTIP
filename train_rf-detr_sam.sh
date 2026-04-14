@@ -55,17 +55,11 @@ cd "$SCRIPT_DIR"
 # Create logs directory if it doesn't exist
 mkdir -p logs
 
-# Select config file based on fold
-CONFIG_FILE="configs/rfdetr_large_motip_pdestre_sam_fold${FOLD}.yaml"
-
-# Only fold 0 config exists by default
-if [ ! -f "$CONFIG_FILE" ]; then
-    echo "Config file $CONFIG_FILE not found. Using fold0 config..."
-    CONFIG_FILE="configs/rfdetr_large_motip_pdestre_sam_fold0.yaml"
-fi
+# RF-DETR-Base + SAM DanceTrack: single canonical config
+CONFIG_FILE="configs/rfdetr_base_motip_sam_concepts_dancetrack.yaml"
 
 # Determine output directory
-OUTPUT_DIR="outputs/rfdetr_motip_pdestre_sam_fold${FOLD}"
+OUTPUT_DIR="outputs/rfdetr_base_motip_sam_concept_dancetrack"
 mkdir -p "$OUTPUT_DIR"
 
 # ── RESUME LOGIC ────────────────────────────────────────────────────────────

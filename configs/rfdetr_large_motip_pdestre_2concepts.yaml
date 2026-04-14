@@ -76,7 +76,7 @@ MOTIP:
   CONCEPT_LOSS_COEF: 0.5           # Match R50 models
 
 # --- Training Settings ---
-EPOCHS: 3
+EPOCHS: 10
 BATCH_SIZE: 1
 LR: 1.0e-4
 LR_BACKBONE_SCALE: 0.1
@@ -107,7 +107,7 @@ FEATURE_DIM: 1024
 
 # --- Evaluation Settings ---
 EVAL_DURING_TRAIN: True
-EVAL_DURING_TRAIN_EPOCHS: [0, 1, 2]
+EVAL_DURING_TRAIN_EPOCHS: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]
 
 # --- Checkpoint Settings ---
 USE_PREVIOUS_CHECKPOINT: True
