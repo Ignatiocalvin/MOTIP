@@ -71,7 +71,8 @@ export CUDA_VISIBLE_DEVICES=0
 
 # Add RF-DETR to Python path
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
-export PYTHONPATH="${SCRIPT_DIR}/rf-detr:${PYTHONPATH}"
+MOTIP_ROOT="$( cd "$SCRIPT_DIR/.." && pwd )"
+export PYTHONPATH="${MOTIP_ROOT}/rf-detr:${PYTHONPATH}"
 
 # Verify GPU availability
 echo "Checking GPU..."
@@ -158,10 +159,10 @@ EOF
         fi
     fi
     
-    # Launch training
-    env PYTHONPATH="${SCRIPT_DIR}/rf-detr:${PYTHONPATH}" \
-    accelerate launch --num_processes=1 train.py \
-        --data-root ./data/ \
+    # Launch training (run from MOTIP root so relative paths work)
+    env PYTHONPATH="${MOTIP_ROOT}/rf-detr:${PYTHONPATH}" \
+    accelerate launch --num_processes=1 "${MOTIP_ROOT}/train.py" \
+        --data-root "${MOTIP_ROOT}/data/" \
         --exp-name "$exp_name" \
         --config-path "$fold_config" \
         $resume_arg
