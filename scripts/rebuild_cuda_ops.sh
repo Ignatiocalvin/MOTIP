@@ -27,7 +27,9 @@ export TORCH_CUDA_ARCH_LIST="8.0;9.0"
 echo "Building CUDA operators for architectures: $TORCH_CUDA_ARCH_LIST"
 
 # Navigate to ops directory
-cd /pfs/work9/workspace/scratch/ma_ighidaya-thesis_ignatio/MOTIP/models/ops
+SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
+MOTIP_ROOT="$( cd "$SCRIPT_DIR/.." && pwd )"
+cd "${MOTIP_ROOT}/models/ops"
 
 # Clean old builds (including installed egg in site-packages)
 rm -rf build dist *.egg-info
