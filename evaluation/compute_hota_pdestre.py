@@ -288,8 +288,9 @@ def run_hota(tracker_dir: Path, split: str,
             "hota": float(np.mean(hota_res["HOTA"])) * 100,
             "deta": float(np.mean(hota_res["DetA"])) * 100,
             "assa": float(np.mean(hota_res["AssA"])) * 100,
-            "mota": float(clear_res["MOTA"]) * 100,
-            "idf1": float(id_res["IDF1"]) * 100,
+            # Use distinct keys so caller's motmetrics MOTA/IDF1 are not overwritten
+            "clear_mota": float(clear_res["MOTA"]) * 100,
+            "clear_idf1": float(id_res["IDF1"]) * 100,
         }
 
     finally:

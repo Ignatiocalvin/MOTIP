@@ -208,12 +208,14 @@ MOTIP/
 ├── outputs/                    # Training outputs (checkpoints, logs, metrics)
 ├── logs/                       # SLURM job output files
 │
-├── evaluation/                 # Evaluation & visualization tools
-│   ├── submit_and_evaluate.py  # Core inference + metric computation
-│   ├── evaluate_fold.sh        # SLURM evaluation submission
-│   ├── extract_metrics.py      # Parse evaluation logs → JSON
-│   ├── visualize_results.py    # Generate metric charts
-│   └── generate_all_visualizations.sh
+├── evaluation/                 # Evaluation tools
+│   ├── eval_checkpoint.sh      # SLURM: evaluate a checkpoint on any split
+│   ├── eval_epoch.py           # Re-evaluate a specific epoch checkpoint
+│   ├── evaluate_checkpoint.py  # Standalone inference + tracker output
+│   ├── submit_and_evaluate.py  # Core inference engine (used by train.py)
+│   ├── compute_all_metrics.py  # Compute MOTA/IDF1/HOTA for all experiments
+│   ├── compute_hota_pdestre.py # HOTA computation via TrackEval
+│   └── EPOCH_METRICS_ALL_MODELS.md  # Auto-generated metrics summary
 │
 ├── scripts/                    # Utility scripts
 │   ├── smoke_test.sh           # Quick validation (R50)
@@ -301,7 +303,7 @@ INFERENCE_SPLIT: val_0       # Validation split
 Edit the configuration section at the top of `train_r50.sh`:
 
 ```bash
-NUM_CONCEPTS=2               # 0=base, 2=2concepts, 3=3concepts
+NUM_CONCEPTS=2               # 0=base, 2=2concepts, 3=3concepts, 7=7concepts (learnable)
 FOLD=0                       # 0-9
 RESUME_MODE="auto"           # "none", "auto", or "manual:/path/to/checkpoint.pth"
 ```
@@ -317,12 +319,14 @@ sbatch train_r50.sh
 Edit the configuration section at the top of `train_rf-detr.sh`:
 
 ```bash
-NUM_CONCEPTS=7               # 0=base, 7=7concepts
-USE_LEARNABLE_WEIGHTS=true   # true or false
+NUM_CONCEPTS=7               # 0=base, 2=2concepts, 7=7concepts
+USE_LEARNABLE_WEIGHTS=true   # true=Kendall et al. uncertainty weighting; false=fixed CONCEPT_LOSS_COEF=0.5
+                             # (only applies when NUM_CONCEPTS=7)
 FOLD=0                       # 0-9
-CONFIG_VERSION="v4"          # "v4" for base config
 RESUME_MODE="auto"           # "none", "auto", or "manual:/path/to/checkpoint.pth"
 ```
+
+> Learnable task weights (Kendall et al. 2018) automatically balance the detection and concept losses by learning per-task uncertainty scalars. The feature is implemented in the model and controlled entirely by the config (`USE_LEARNABLE_TASK_WEIGHTS: True/False`). The shell variable `USE_LEARNABLE_WEIGHTS` in the script simply selects between the two pre-configured YAML files.
 
 Submit:
 
@@ -351,6 +355,14 @@ Both scripts request:
 
 ### Monitoring training
 
+Both training scripts rename the SLURM job and create descriptive log symlinks automatically once the job starts, so `squeue` and log filenames reflect the chosen configuration:
+
+| Script | Job name example | Log symlink example |
+|--------|-----------------|--------------------|
+| `train_r50.sh` | `motip_r50_2c_f0` | `logs/motip_r50_2c_f0_<jobid>.out` |
+| `train_rf-detr.sh` (7c learnable) | `motip_rfdetr_7c_lw_f0` | `logs/motip_rfdetr_7c_lw_f0_<jobid>.out` |
+| `train_rf-detr.sh` (7c fixed) | `motip_rfdetr_7c_nolw_f0` | `logs/motip_rfdetr_7c_nolw_f0_<jobid>.out` |
+
 ```bash
 # Check job status
 squeue -u $USER
@@ -358,9 +370,11 @@ squeue -u $USER
 # Watch training log (live)
 tail -f outputs/<experiment_name>/train/log.txt
 
-# Check SLURM output
-cat logs/motip_r50_<job_id>.out
+# Check SLURM output (use the symlinked name or the raw job-ID name)
+cat logs/motip_r50_2c_f0_<jobid>.out
 ```
+
+> **Note:** `train_rfdetr_all.sh` is a legacy local-development script (not a SLURM job). Use `train_rf-detr.sh` on the cluster instead.
 
 ### Output structure
 
@@ -389,76 +403,78 @@ Training scripts support automatic resume. With `RESUME_MODE="auto"`, the script
 
 ## 7. Evaluation
 
-After training completes, evaluate tracking performance on the validation or test split.
+After training completes, evaluate tracking performance on the validation split.
 
-### Step 1: Submit evaluation job
+Evaluation is **fully end-to-end** for both datasets — a single `sbatch` command runs inference and computes all metrics with no external tools or post-processing scripts required:
+
+- **P-DESTRE**: MOTA/IDF1 via motmetrics + HOTA/DetA/AssA via TrackEval, all computed automatically inside the job.
+- **DanceTrack**: HOTA/CLEAR/Identity via the bundled TrackEval library (`TrackEval/`), computed automatically at the end of inference. No separate evaluation step needed.
+
+### Submit evaluation job
 
 ```bash
 cd /pfs/work9/workspace/scratch/ma_ighidaya-thesis_ignatio/MOTIP
 
-# Evaluate fold 0 on the validation split
-sbatch evaluation/evaluate_fold.sh 0
+# Usage: sbatch evaluation/eval_checkpoint.sh <checkpoint_path> <split> [dataset]
+#        dataset is optional, defaults to P-DESTRE
+
+# P-DESTRE (default)
+sbatch evaluation/eval_checkpoint.sh outputs/r50_motip_pdestre_base_fold0/checkpoint_2.pth val_0
+sbatch evaluation/eval_checkpoint.sh outputs/rfdetr_large_motip_pdestre_2concepts_fold0/checkpoint_0.pth val_0
+
+# DanceTrack — same script, just pass the dataset name as the third argument
+sbatch evaluation/eval_checkpoint.sh outputs/r50_motip_dancetrack/checkpoint_5.pth val DanceTrack
 ```
 
-> **Note**: Edit `evaluation/evaluate_fold.sh` to match your experiment name, config path, and checkpoint path before submitting. The default evaluates `r50_motip_pdestre_fold_0`.
+The script auto-discovers the config from the checkpoint's parent directory (`train/config.yaml`). Results are written to `outputs/<exp_name>/eval/<dataset>_<split>/<checkpoint_name>/`.
 
-### Step 2: Run evaluation directly (alternative)
+### Re-evaluate a specific epoch
+
+If you need to re-run evaluation for a checkpoint that was already trained (e.g., if eval during training was skipped):
 
 ```bash
-python evaluation/submit_and_evaluate.py \
-    --config-path configs/r50_deformable_detr_motip_pdestre_2concepts_fold0_v2.yaml \
-    --inference-model outputs/r50_motip_pdestre_2concepts_fold_0/checkpoint_9.pth \
-    --inference-group fold_0 \
-    --inference-dataset P-DESTRE \
-    --inference-split val_0 \
-    --outputs-dir outputs/r50_motip_pdestre_2concepts_fold_0
+accelerate launch evaluation/eval_epoch.py \
+    --config-path ./configs/r50_motip_pdestre_base.yaml \
+    --checkpoint ./outputs/r50_motip_pdestre_base_fold0/checkpoint_2.pth \
+    --epoch 2
 ```
 
-### Step 3: Extract metrics
+### Compute metrics across all experiments
+
+After inference has run and tracker `.txt` files exist:
 
 ```bash
-# Single fold
-python evaluation/extract_metrics.py --exp-prefix r50_motip_pdestre_2concepts --fold 0
+# Compute MOTA/IDF1/HOTA for all experiments and write EPOCH_METRICS_ALL_MODELS.md
+python evaluation/compute_all_metrics.py
 
-# All completed folds
-python evaluation/extract_metrics.py --exp-prefix r50_motip_pdestre_2concepts --all-folds
+# Or in parallel (faster):
+python evaluation/parallel_compute_metrics.py
 ```
+
+Results are saved to `evaluation/EPOCH_METRICS_ALL_MODELS.md`.
 
 ### Metrics computed
 
 | Category | Metrics |
 |----------|---------|
-| **Tracking** | HOTA, MOTA, MOTP, IDF1 |
+| **Tracking** | HOTA, MOTA, IDF1 |
 | **Detection** | DetA, DetRe, DetPr |
 | **Identity** | AssA, AssRe, AssPr |
-| **Concept accuracy** | Per-attribute accuracy (gender, upper_body, etc.) |
 
 ---
 
 ## 8. Visualization
 
-### Generate all charts at once
+Tracking visualizations are generated with `visualizations/visualize_tracking.py`:
 
 ```bash
-cd /pfs/work9/workspace/scratch/ma_ighidaya-thesis_ignatio/MOTIP/evaluation
-./generate_all_visualizations.sh r50_motip_pdestre_2concepts
+python visualizations/visualize_tracking.py \
+    --tracker-dir outputs/r50_motip_pdestre_base_fold0/train/eval_during_train/epoch_2/tracker \
+    --images-dir data/P-DESTRE/images \
+    --output-dir visualizations/
 ```
 
-This runs metric extraction + chart generation for all folds and saves output to `outputs/<prefix>_visualizations/`.
-
-### Generate charts manually
-
-```bash
-python evaluation/visualize_results.py --exp-prefix r50_motip_pdestre_2concepts_fold_0
-```
-
-### What you get
-
-- Tracking metric bar charts (HOTA, MOTA, IDF1 per fold)
-- Detection performance plots (DetA, DetRe, DetPr)
-- Concept prediction accuracy per attribute
-- Cross-fold summary statistics (mean ± std)
-- Summary report text file
+See `python visualizations/visualize_tracking.py --help` for full options.
 
 ---
 
@@ -491,7 +507,7 @@ cd models/ops && python setup.py build install && cd ../..
 
 ### "CUDA not available" during evaluation
 
-- Evaluation requires a GPU. Always use `sbatch evaluation/evaluate_fold.sh` — do not run directly on a login node.
+- Evaluation requires a GPU. Always use `sbatch evaluation/eval_checkpoint.sh` — do not run directly on a login node.
 
 ### RF-DETR import errors
 
@@ -540,9 +556,11 @@ sbatch train_r50.sh                     # R50 backbone
 sbatch train_rf-detr.sh                 # RF-DETR backbone
 
 # === EVALUATION ===
-sbatch evaluation/evaluate_fold.sh 0    # Evaluate fold 0
+sbatch evaluation/eval_checkpoint.sh outputs/<exp>/checkpoint_2.pth val_0
+
+# === METRICS ===
+python evaluation/compute_all_metrics.py   # writes evaluation/EPOCH_METRICS_ALL_MODELS.md
 
 # === VISUALIZATION ===
-cd evaluation/
-./generate_all_visualizations.sh r50_motip_pdestre_2concepts
+python visualizations/visualize_tracking.py --help
 ```

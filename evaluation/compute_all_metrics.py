@@ -330,7 +330,10 @@ def main():
                     m = compute_metrics(tracker_dir, val_seqs)
                     try:
                         hota_m = run_hota(tracker_dir, val_split)
-                        m.update(hota_m)
+                        # Only add HOTA/DetA/AssA keys; do NOT overwrite mota/idf1
+                        for k in ("hota", "deta", "assa", "clear_mota", "clear_idf1"):
+                            if k in hota_m:
+                                m[k] = hota_m[k]
                     except Exception as he:
                         print(f"  {ep_num:>6}  HOTA error: {he}")
                         m["hota"] = m["deta"] = m["assa"] = None

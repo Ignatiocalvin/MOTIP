@@ -390,18 +390,23 @@ def submit_and_evaluate_one_model(
         if dataset in ["DanceTrack", "SportsMOT", "MOT17", "PersonPath22_Inference", "BFT", "P-DESTRE"]:
             sequence_tracker_results = []
             for t in range(len(sequence_results)):
-                for obj_id, score, category, bbox, concepts in zip(
-                        sequence_results[t]["id"],
-                        sequence_results[t]["score"],
-                        sequence_results[t]["category"],
-                        sequence_results[t]["bbox"],  # [x, y, w, h]
-                        sequence_results[t]["concepts"],
-                ):
-                    # Concepts are now predicted class indices (not logits)
-                    if concepts.dim() == 0:
-                        concept_str = f"{concepts.item()}"
+                ids_t       = sequence_results[t]["id"]
+                scores_t    = sequence_results[t]["score"]
+                cats_t      = sequence_results[t]["category"]
+                bboxes_t    = sequence_results[t]["bbox"]
+                concepts_t  = sequence_results[t]["concepts"]
+                n_objects   = len(ids_t)
+
+                for i, (obj_id, score, category, bbox) in enumerate(zip(ids_t, scores_t, cats_t, bboxes_t)):
+                    # Handle base models where concepts tensor has length 0 (no concept heads)
+                    if len(concepts_t) == n_objects:
+                        concepts = concepts_t[i]
+                        if concepts.dim() == 0:
+                            concept_str = f"{concepts.item()}"
+                        else:
+                            concept_str = ",".join([f"{c.item()}" for c in concepts])
                     else:
-                        concept_str = ",".join([f"{c.item()}" for c in concepts])
+                        concept_str = ""  # base model — no concept heads
                     sequence_tracker_results.append(
                         f"{t + 1},{obj_id.item()},"
                         f"{bbox[0].item():.2f},{bbox[1].item():.2f},{bbox[2].item():.2f},{bbox[3].item():.2f},"

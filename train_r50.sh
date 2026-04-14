@@ -7,14 +7,17 @@
 #   sbatch train_r50.sh
 #
 # Supported configurations:
-#   NUM_CONCEPTS: 0 (base), 2 (2concepts), 3 (3concepts)
+#   NUM_CONCEPTS: 0 (base), 2 (2concepts), 3 (3concepts), 7 (7concepts)
+#   USE_LEARNABLE_WEIGHTS: true/false — only applies when NUM_CONCEPTS=7
 #   FOLD: 0, 1, 2, 3, 4
 #   RESUME_MODE: "none", "auto", or "manual:/path/to/checkpoint.pth"
 #
 # ═══════════════════════════════════════════════════════════════════════════════
 
 # ── CONFIGURATION (edit these) ────────────────────────────────────────────────
-NUM_CONCEPTS=2               # 0=base, 2=2concepts, 3=3concepts
+NUM_CONCEPTS=2               # 0=base, 2=2concepts, 3=3concepts, 7=7concepts
+USE_LEARNABLE_WEIGHTS=true   # true=learnable task weights (Kendall et al.); false=fixed CONCEPT_LOSS_COEF=0.5
+                             # (only applies when NUM_CONCEPTS=7)
 FOLD=0                       # Fold number for cross-validation
 RESUME_MODE="auto"           # "none", "auto", or "manual:/path/to/checkpoint.pth"
 # ──────────────────────────────────────────────────────────────────────────────
@@ -54,14 +57,31 @@ case $NUM_CONCEPTS in
         EXP_NAME="r50_motip_pdestre_3concepts_fold_${FOLD}"
         ;;
     7)
-        CONFIG="./configs/r50_motip_pdestre_7concepts_lw.yaml"
-        EXP_NAME="r50_motip_pdestre_7concepts_learnable_fold_${FOLD}"
+        if [ "$USE_LEARNABLE_WEIGHTS" = "true" ]; then
+            CONFIG="./configs/r50_motip_pdestre_7concepts_lw.yaml"
+            EXP_NAME="r50_motip_pdestre_7concepts_learnable_fold_${FOLD}"
+        else
+            CONFIG="./configs/r50_motip_pdestre_7concepts_nolw.yaml"
+            EXP_NAME="r50_motip_pdestre_7concepts_nolw_fold_${FOLD}"
+        fi
         ;;
     *)
         echo "ERROR: NUM_CONCEPTS must be 0, 2, 3, or 7. Got: $NUM_CONCEPTS"
         exit 1
         ;;
 esac
+
+# ── Update SLURM job name and create descriptive log symlinks ─────────────────
+if [ -n "$SLURM_JOB_ID" ]; then
+    LW_SUFFIX=""
+    [ "$NUM_CONCEPTS" -eq 7 ] && [ "$USE_LEARNABLE_WEIGHTS" = "true" ] && LW_SUFFIX="_lw"
+    [ "$NUM_CONCEPTS" -eq 7 ] && [ "$USE_LEARNABLE_WEIGHTS" != "true" ] && LW_SUFFIX="_nolw"
+    JOB_LABEL="motip_r50_${NUM_CONCEPTS}c${LW_SUFFIX}_f${FOLD}"
+    scontrol update JobId="$SLURM_JOB_ID" JobName="$JOB_LABEL" 2>/dev/null || true
+    mkdir -p logs
+    ln -sf "motip_r50_${SLURM_JOB_ID}.out" "logs/${JOB_LABEL}_${SLURM_JOB_ID}.out" 2>/dev/null || true
+    ln -sf "motip_r50_${SLURM_JOB_ID}.err" "logs/${JOB_LABEL}_${SLURM_JOB_ID}.err" 2>/dev/null || true
+fi
 
 # ── Signal handler: stop training, resubmit self ──────────────────────────────
 TRAINING_PID=""

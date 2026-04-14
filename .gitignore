@@ -4,8 +4,15 @@ data/P-DESTRE/images/
 data/P-DESTRE/videos/
 outputs_slim/
 .venv/
-logs/
+logs/*
+!logs/.gitkeep
+models/ops/logs/
 outputs/
+scripts/evaluation_archive/
+scripts/training_archive/
+visualizations/*
+!visualizations/*.py
+!visualizations/*.md
 
 # Cuda run
 models/ops/cuda*.run
@@ -126,3 +133,4 @@ check_tracker.sh
 find_demo_video.sh
 test_dancetrack.py
 models/ops/check.sh
+**/.metrics_cache.json

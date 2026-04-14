@@ -1,0 +1,37 @@
+# Smoke Test Configuration
+# A minimal config for quick validation of the training pipeline
+# Based on r50_motip_pdestre_base.yaml with reduced epochs
+
+SUPER_CONFIG_PATH: ./configs/r50_deformable_detr_motip_dancetrack.yaml
+
+# Dataset settings:
+DATASETS: [P-DESTRE]
+DATASET_SPLITS: [Train_0]
+
+# Model settings - Base model (no concepts):
+NUM_CONCEPTS: 0
+NUM_ID_VOCABULARY: 200
+
+# Training strategies - Minimal for smoke test:
+EPOCHS: 2
+BATCH_SIZE: 1
+ACCUMULATE_STEPS: 2
+MAX_STEPS_PER_EPOCH: 20  # Limit steps for quick validation
+
+# Resumes and Pretrains:
+DETR_PRETRAIN: ./pretrains/r50_deformable_detr_coco.pth
+
+# Inference settings:
+INFERENCE_DATASET: P-DESTRE
+INFERENCE_SPLIT: val_0
+INFERENCE_MODE: evaluate
+
+# Outputs settings:
+OUTPUTS_DIR: ./outputs/smoke_test
+USE_WANDB: False
+EXP_NAME: smoke_test
+SAVE_CHECKPOINT_PER_EPOCH: 1
+
+# Evaluation during training:
+EVAL_DURING_TRAIN: True
+EVAL_DURING_TRAIN_EPOCHS: [0, 1]

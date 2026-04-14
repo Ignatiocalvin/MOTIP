@@ -829,6 +829,8 @@ def train_one_epoch(
         # Update the counters:
         states["global_step"] += 1
     states["start_epoch"] += 1
+    # Ensure metrics are synced before returning (for epoch-level logging):
+    metrics.sync()
     return metrics
 
 

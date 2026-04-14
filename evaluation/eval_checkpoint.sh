@@ -6,15 +6,14 @@
 # Interactive SLURM script — user specifies checkpoint path and split.
 #
 # Usage:
-#   sbatch eval_checkpoint.sh <checkpoint> <split>
+#   sbatch eval_checkpoint.sh <checkpoint> <split> [dataset]
 #
 # Examples:
-#   sbatch eval_checkpoint.sh outputs/r50_motip_pdestre_base_fold0/checkpoint_2.pth Test_0
-#   sbatch eval_checkpoint.sh outputs/rfdetr_large_motip_pdestre_2concepts_fold0/checkpoint_0.pth val_0
-#   sbatch eval_checkpoint.sh /absolute/path/to/checkpoint_5.pth Test_1
+#   sbatch eval_checkpoint.sh outputs/r50_motip_pdestre_base_fold0/checkpoint_2.pth val_0
+#   sbatch eval_checkpoint.sh outputs/rfdetr_large_motip_pdestre_2concepts_fold0/checkpoint_0.pth val_0 P-DESTRE
+#   sbatch eval_checkpoint.sh outputs/dancetrack_exp/checkpoint_5.pth val DanceTrack
 #
-# The config is auto-discovered from the checkpoint's parent directory
-# (looks for train/config.yaml next to the checkpoint).
+# The dataset argument is optional and defaults to P-DESTRE.
 #
 # ═══════════════════════════════════════════════════════════════════════════════
 
@@ -30,8 +29,9 @@
 #SBATCH --chdir=/pfs/work9/workspace/scratch/ma_ighidaya-thesis_ignatio/MOTIP
 
 # ── Parse arguments ──────────────────────────────────────────────────────────
-CHECKPOINT="${1:?Usage: sbatch eval_checkpoint.sh <checkpoint_path> <split>}"
-SPLIT="${2:?Usage: sbatch eval_checkpoint.sh <checkpoint_path> <split>}"
+CHECKPOINT="${1:?Usage: sbatch eval_checkpoint.sh <checkpoint_path> <split> [dataset]}"
+SPLIT="${2:?Usage: sbatch eval_checkpoint.sh <checkpoint_path> <split> [dataset]}"
+DATASET="${3:-P-DESTRE}"  # optional, defaults to P-DESTRE
 
 # ── Resolve checkpoint to absolute path ──────────────────────────────────────
 if [[ "$CHECKPOINT" != /* ]]; then
@@ -67,7 +67,7 @@ fi
 
 # ── Derive output directory ──────────────────────────────────────────────────
 CKPT_NAME="$(basename "$CHECKPOINT" .pth)"
-OUTPUT_DIR="$CKPT_DIR/eval/PDESTRE_${SPLIT}/${CKPT_NAME}"
+OUTPUT_DIR="$CKPT_DIR/eval/${DATASET}_${SPLIT}/${CKPT_NAME}"
 
 echo "═══════════════════════════════════════════════════════════════"
 echo " Checkpoint Evaluation"
@@ -117,7 +117,7 @@ accelerate launch evaluation/evaluate_checkpoint.py \
     --checkpoint "$CHECKPOINT" \
     --config "$CONFIG" \
     --data-root ./data/ \
-    --dataset P-DESTRE \
+    --dataset "$DATASET" \
     --split "$SPLIT" \
     --output-dir "$OUTPUT_DIR" \
     --skip-existing

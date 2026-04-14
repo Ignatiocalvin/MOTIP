@@ -35,7 +35,7 @@ def main():
                         help='Path to config YAML file')
     parser.add_argument('--data-root', type=str, default='./data/',
                         help='Root directory for datasets')
-    parser.add_argument('--dataset', type=str, default='PDESTRE',
+    parser.add_argument('--dataset', type=str, default='P-DESTRE',
                         help='Dataset name (e.g., PDESTRE)')
     parser.add_argument('--split', type=str, default='test',
                         help='Dataset split (e.g., test, val)')
@@ -130,6 +130,8 @@ def main():
         area_thresh=cfg.get("AREA_THRESH", 0),
         inference_only_detr=cfg.get("INFERENCE_ONLY_DETR", cfg.get("ONLY_DETR", False)),
         concept_bottleneck_mode=cfg.get("MOTIP", {}).get("CONCEPT_BOTTLENECK_MODE", "hard"),
+        use_concept_bottleneck=cfg.get("USE_CONCEPT_BOTTLENECK", False),
+        object_mask_root=cfg.get("OBJECT_MASK_ROOT", None),
     )
     
     # Sync and log metrics
